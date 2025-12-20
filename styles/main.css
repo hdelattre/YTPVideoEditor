@@ -1,0 +1,446 @@
+/**
+ * Main CSS - Global styles and layout
+ */
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --color-bg: #1a1a1a;
+  --color-bg-light: #242424;
+  --color-bg-lighter: #2a2a2a;
+  --color-border: #3a3a3a;
+  --color-text: #e0e0e0;
+  --color-text-muted: #999999;
+  --color-primary: #4a9eff;
+  --color-primary-hover: #6ab7ff;
+  --color-secondary: #666;
+  --color-secondary-hover: #888;
+  --color-success: #4aff9d;
+  --color-warning: #ff9d4a;
+  --color-danger: #ff4a4a;
+
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --spacing-xl: 32px;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+
+  --header-height: 60px;
+  --status-bar-height: 30px;
+  --sidebar-width: 250px;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  background: var(--color-bg);
+  color: var(--color-text);
+  overflow: hidden;
+  height: 100vh;
+}
+
+/* Editor container */
+.editor-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+/* Header */
+.editor-header {
+  height: var(--header-height);
+  background: var(--color-bg-light);
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--spacing-lg);
+}
+
+.editor-header h1 {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.header-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+/* Main content area */
+.editor-main {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+/* Sidebars */
+.media-panel,
+.properties-panel {
+  width: var(--sidebar-width);
+  background: var(--color-bg-light);
+  border-right: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.properties-panel {
+  border-right: none;
+  border-left: 1px solid var(--color-border);
+}
+
+.media-panel h2,
+.properties-panel h2 {
+  font-size: 14px;
+  font-weight: 600;
+  padding: var(--spacing-md);
+  border-bottom: 1px solid var(--color-border);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Media panel */
+.media-upload {
+  padding: var(--spacing-md);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.media-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--spacing-sm);
+}
+
+/* Properties panel */
+.properties-content {
+  flex: 1;
+  padding: var(--spacing-md);
+  overflow-y: auto;
+}
+
+.empty-message {
+  color: var(--color-text-muted);
+  font-size: 14px;
+  text-align: center;
+  margin-top: var(--spacing-xl);
+}
+
+/* Center area */
+.editor-center {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Preview section */
+.preview-section {
+  height: 40%;
+  min-height: 200px;
+  background: var(--color-bg);
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+}
+
+.preview-container {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-md);
+}
+
+#previewCanvas {
+  background: #000;
+  border-radius: var(--radius-sm);
+}
+
+.preview-controls {
+  height: 50px;
+  background: var(--color-bg-light);
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  padding: 0 var(--spacing-md);
+  gap: var(--spacing-md);
+}
+
+.time-display {
+  font-family: 'Courier New', monospace;
+  font-size: 14px;
+  min-width: 80px;
+}
+
+.volume-slider {
+  width: 100px;
+  margin-left: auto;
+}
+
+.volume-label {
+  font-size: 16px;
+}
+
+/* Timeline section */
+.timeline-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.timeline-toolbar {
+  height: 40px;
+  background: var(--color-bg-light);
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  padding: 0 var(--spacing-md);
+  gap: var(--spacing-sm);
+}
+
+.zoom-label {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.zoom-level {
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  min-width: 50px;
+  text-align: center;
+}
+
+/* Status bar */
+.status-bar {
+  height: var(--status-bar-height);
+  background: var(--color-bg-light);
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--spacing-md);
+  font-size: 12px;
+}
+
+#statusText {
+  color: var(--color-text);
+}
+
+#fps {
+  color: var(--color-text-muted);
+  font-family: 'Courier New', monospace;
+}
+
+.export-command-bar {
+  height: 40px;
+  background: var(--color-bg-light);
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: 0 var(--spacing-md);
+  font-size: 12px;
+}
+
+.export-command-label {
+  color: var(--color-text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+
+.export-command-input {
+  flex: 1;
+  min-width: 0;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  color: var(--color-text);
+  font-family: 'Courier New', monospace;
+  font-size: 11px;
+}
+
+/* Buttons */
+.btn {
+  background: var(--color-secondary);
+  color: var(--color-text);
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 8px 16px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--color-secondary-hover);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--color-primary);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+}
+
+.btn-secondary {
+  background: var(--color-secondary);
+}
+
+.btn-icon {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+}
+
+.btn-sm {
+  padding: 4px 12px;
+  font-size: 12px;
+}
+
+.separator {
+  width: 1px;
+  height: 24px;
+  background: var(--color-border);
+  margin: 0 var(--spacing-xs);
+}
+
+/* Modal */
+.modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: var(--color-bg-light);
+  border-radius: var(--radius-md);
+  width: 90%;
+  max-width: 600px;
+  max-height: 80vh;
+  overflow: hidden;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--spacing-lg);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.modal-header h3 {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  font-size: 24px;
+  color: var(--color-text);
+  cursor: pointer;
+  padding: 0;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.close-btn:hover {
+  color: var(--color-primary);
+}
+
+.modal-body {
+  padding: var(--spacing-lg);
+  overflow-y: auto;
+}
+
+.modal-message {
+  color: var(--color-text-muted);
+  font-size: 14px;
+  margin-bottom: var(--spacing-md);
+}
+
+.modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
+}
+
+/* Shortcuts table */
+.shortcuts-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.shortcuts-table tr {
+  border-bottom: 1px solid var(--color-border);
+}
+
+.shortcuts-table td {
+  padding: var(--spacing-sm) 0;
+}
+
+.shortcuts-table td:first-child {
+  font-weight: 600;
+}
+
+kbd {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  margin: 0 2px;
+}
+
+/* Scrollbars */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-secondary);
+}

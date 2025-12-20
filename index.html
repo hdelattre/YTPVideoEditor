@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YTP Video Editor</title>
+    <link rel="stylesheet" href="styles/main.css">
+    <link rel="stylesheet" href="styles/timeline.css">
+    <link rel="stylesheet" href="styles/editor.css">
+</head>
+<body>
+    <div class="editor-container">
+        <!-- Header -->
+        <header class="editor-header">
+            <h1>YTP Video Editor</h1>
+            <div class="header-controls">
+                <button id="undoBtn" class="btn btn-icon" title="Undo (Ctrl+Z)" disabled>↶</button>
+                <button id="redoBtn" class="btn btn-icon" title="Redo (Ctrl+Shift+Z)" disabled>↷</button>
+                <span class="separator"></span>
+                <button id="newProjectBtn" class="btn btn-secondary">New Project</button>
+                <button id="saveBtn" class="btn btn-secondary">Save Project</button>
+                <button id="exportBtn" class="btn btn-primary" disabled>Export Video</button>
+            </div>
+        </header>
+
+        <!-- Main content area -->
+        <div class="editor-main">
+            <!-- Left sidebar - Media panel -->
+            <aside class="media-panel">
+                <h2>Media Library</h2>
+                <div class="media-upload">
+                    <button id="uploadBtn" class="btn btn-secondary">
+                        <span>📁 Upload Media</span>
+                    </button>
+                    <input type="file" id="fileInput" accept="video/*,audio/*" multiple hidden>
+                </div>
+                <div id="mediaList" class="media-list"></div>
+            </aside>
+
+            <!-- Center - Preview and Timeline -->
+            <main class="editor-center">
+                <!-- Preview area -->
+                <section class="preview-section">
+                    <div class="preview-container">
+                        <canvas id="previewCanvas"></canvas>
+                    </div>
+                    <div class="preview-controls">
+                        <button id="playBtn" class="btn btn-icon">▶</button>
+                        <button id="pauseBtn" class="btn btn-icon" style="display:none;">⏸</button>
+                        <span id="timeDisplay" class="time-display">00:00.00</span>
+                        <input type="range" id="volumeSlider" min="0" max="100" value="100" class="volume-slider">
+                        <span class="volume-label">🔊</span>
+                    </div>
+                </section>
+
+                <!-- Timeline area -->
+                <section class="timeline-section">
+                    <div class="timeline-toolbar">
+                        <button id="addTrackBtn" class="btn btn-sm">+ Track</button>
+                        <span class="separator"></span>
+                        <span class="zoom-label">Zoom:</span>
+                        <button id="zoomOutBtn" class="btn btn-icon btn-sm">-</button>
+                        <span id="zoomLevel" class="zoom-level">100%</span>
+                        <button id="zoomInBtn" class="btn btn-icon btn-sm">+</button>
+                    </div>
+                    <div id="timelineContainer" class="timeline-container"></div>
+                </section>
+            </main>
+
+            <!-- Right sidebar - Properties panel -->
+            <aside class="properties-panel">
+                <h2>Properties</h2>
+                <div id="propertiesContent" class="properties-content">
+                    <p class="empty-message">Select a clip to edit properties</p>
+                </div>
+            </aside>
+        </div>
+
+        <!-- Status bar -->
+        <footer class="status-bar">
+            <span id="statusText">Ready</span>
+            <span id="fps">60 FPS</span>
+        </footer>
+        <div id="exportCommandBar" class="export-command-bar" hidden>
+            <span class="export-command-label">FFmpeg</span>
+            <input id="exportCommandInput" class="export-command-input" readonly>
+            <button id="exportCommandCopyBtn" class="btn btn-secondary btn-sm">Copy</button>
+            <button id="exportCommandCloseBtn" class="btn btn-icon btn-sm" title="Close">×</button>
+        </div>
+    </div>
+
+    <!-- Keyboard shortcuts help modal -->
+    <div id="helpModal" class="modal" style="display:none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Keyboard Shortcuts</h3>
+                <button class="close-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <table class="shortcuts-table">
+                    <tr><td><kbd>Space</kbd></td><td>Play/Pause</td></tr>
+                    <tr><td><kbd>J</kbd></td><td>Jump backward 1s</td></tr>
+                    <tr><td><kbd>L</kbd></td><td>Jump forward 1s</td></tr>
+                    <tr><td><kbd>S</kbd></td><td>Split clip at playhead</td></tr>
+                    <tr><td><kbd>Delete</kbd></td><td>Delete selected clip</td></tr>
+                    <tr><td><kbd>R</kbd></td><td>Reverse clip</td></tr>
+                    <tr><td><kbd>[</kbd> / <kbd>]</kbd></td><td>Speed down/up</td></tr>
+                    <tr><td><kbd>Ctrl+Z</kbd></td><td>Undo</td></tr>
+                    <tr><td><kbd>Ctrl+Shift+Z</kbd></td><td>Redo</td></tr>
+                    <tr><td><kbd>+</kbd> / <kbd>-</kbd></td><td>Zoom in/out</td></tr>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Project modal -->
+    <div id="projectModal" class="modal" style="display:none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Project</h3>
+                <button class="close-btn" id="projectModalCloseBtn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p id="projectModalMessage" class="modal-message"></p>
+                <div class="modal-actions">
+                    <button id="projectNewBtn" class="btn btn-secondary">New Project</button>
+                    <button id="projectLoadBtn" class="btn btn-primary">Load Saved</button>
+                    <button id="projectCancelBtn" class="btn btn-secondary">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="src/main.js"></script>
+</body>
+</html>
