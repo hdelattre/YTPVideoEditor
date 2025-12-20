@@ -271,6 +271,8 @@ export class Timeline {
           originalStart: clickedClip.start,
           originalDuration: clickedClip.duration,
           originalTrimStart: clickedClip.trimStart,
+          historySnapshot: this.state.getState(),
+          didUpdate: false,
         };
         return;
       }
@@ -313,6 +315,8 @@ export class Timeline {
         originalTrackId: clickedClip.trackId,
         selectedClips,
         minStart,
+        historySnapshot: this.state.getState(),
+        didUpdate: false,
       };
     } else {
       // Deselect if clicking on empty space
@@ -357,6 +361,10 @@ export class Timeline {
         adjustedDeltaTime = -this.dragState.minStart;
       }
 
+      if (adjustedDeltaTime === 0 && deltaTrack === 0) {
+        return;
+      }
+
       const moves = (this.dragState.selectedClips || []).map(clip => {
         const start = Math.max(0, clip.originalStart + adjustedDeltaTime);
         const trackId = Math.max(
@@ -367,7 +375,8 @@ export class Timeline {
       });
 
       if (moves.length > 0) {
-        this.state.dispatch(actions.moveClips(moves));
+        this.state.dispatch(actions.moveClips(moves), false);
+        this.dragState.didUpdate = true;
       }
 
     } else if (this.dragState.type === 'resize') {
@@ -385,16 +394,20 @@ export class Timeline {
             start: newStart,
             trimStart: newTrimStart,
             duration: newDuration,
-          }));
+          }), false);
+          this.dragState.didUpdate = true;
         }
 
       } else if (this.dragState.handle === 'right') {
         // Resize from right (adjust duration)
         const newDuration = Math.max(100, this.dragState.originalDuration + deltaTime);
 
-        this.state.dispatch(actions.updateClip(clip.id, {
-          duration: newDuration,
-        }));
+        if (newDuration !== clip.duration) {
+          this.state.dispatch(actions.updateClip(clip.id, {
+            duration: newDuration,
+          }), false);
+          this.dragState.didUpdate = true;
+        }
       }
     }
   }
@@ -404,6 +417,9 @@ export class Timeline {
    * @param {PointerEvent} e
    */
   onPointerUp(e) {
+    if (this.dragState && this.dragState.historySnapshot && this.dragState.didUpdate) {
+      this.state.dispatch(state => state, true, this.dragState.historySnapshot);
+    }
     this.dragState = null;
     this.canvas.style.cursor = 'default';
   }

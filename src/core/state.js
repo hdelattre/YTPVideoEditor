@@ -76,10 +76,13 @@ export class StateManager {
    * @param {import('./types.js').ActionFunction} actionFn - Function that mutates state
    * @param {boolean} historyEnabled - Whether to add to undo history
    */
-  dispatch(actionFn, historyEnabled = true) {
+  dispatch(actionFn, historyEnabled = true, historySnapshot = null) {
     if (historyEnabled) {
+      const snapshot = historySnapshot !== null && historySnapshot !== undefined
+        ? historySnapshot
+        : this.state;
       // Save current state to history
-      this.history.push(this.cloneState(this.state));
+      this.history.push(this.cloneState(snapshot));
 
       // Trim history if too large
       if (this.history.length > this.maxHistory) {

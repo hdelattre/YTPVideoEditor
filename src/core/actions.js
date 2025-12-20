@@ -26,6 +26,8 @@ export function addClip(clip) {
       waveformData: clip.waveformData,
       reversed: clip.reversed || false,
       speed: clip.speed || DEFAULT_SPEED,
+      volume: clip.volume !== undefined ? clip.volume : 1,
+      muted: Boolean(clip.muted),
     });
     return state;
   };
