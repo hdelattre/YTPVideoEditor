@@ -158,6 +158,22 @@ export function addMedia(media) {
 }
 
 /**
+ * Update media metadata
+ * @param {string} mediaId
+ * @param {Partial<import('./types.js').Media>} updates
+ * @returns {import('./types.js').ActionFunction}
+ */
+export function updateMedia(mediaId, updates) {
+  return (state) => {
+    const media = state.mediaLibrary.find(m => m.id === mediaId);
+    if (media) {
+      Object.assign(media, updates);
+    }
+    return state;
+  };
+}
+
+/**
  * Remove media from library
  * @param {string} mediaId
  * @returns {import('./types.js').ActionFunction}

@@ -44,6 +44,8 @@ export class Timeline {
 
     // Scroll state
     this.scrollX = 0;
+    this.lastZoom = this.state.getState().zoom;
+    this.zoomAnchor = null;
 
     this.setupCanvas();
     this.setupEventListeners();
@@ -119,6 +121,16 @@ export class Timeline {
     const visibleWidth = this.renderer.width;
     const visibleHeight = this.renderer.height;
     const timelineHeight = state.tracks.length * TRACK_HEIGHT + RULER_HEIGHT;
+
+    if (this.lastZoom !== state.zoom) {
+      if (this.zoomAnchor !== 'mouse') {
+        const playheadX = timeToPixels(state.playhead, state.zoom);
+        this.scrollX = playheadX - visibleWidth / 2;
+      }
+      this.zoomAnchor = null;
+      this.lastZoom = state.zoom;
+    }
+
     const maxScroll = this.getMaxScroll(state, visibleWidth);
     this.scrollX = Math.max(0, Math.min(this.scrollX, maxScroll));
 
@@ -366,6 +378,7 @@ export class Timeline {
       const mouseX = e.clientX - rect.left;
       const timeAtMouse = pixelsToTime(mouseX + this.scrollX, state.zoom);
 
+      this.zoomAnchor = 'mouse';
       this.state.dispatch(actions.setZoom(newZoom), false);
 
       // Adjust scroll to keep time under mouse in same position

@@ -22,6 +22,21 @@ class YTPEditor {
     this.isPlayheadUpdateFromPlayback = false;
     this.lastPlayhead = 0;
     this.mediaInfo = new Map();
+    this.lastPreviewVideoClipId = null;
+    this.lastPreviewAudioClipId = null;
+    this.lastReverseSeekTime = 0;
+    this.previewFrameBuffer = document.createElement('canvas');
+    this.previewFrameCtx = this.previewFrameBuffer.getContext('2d');
+    this.hasPreviewFrame = false;
+    this.audioContext = null;
+    this.decodedAudio = new Map();
+    this.reverseAudioNode = null;
+    this.reverseAudioGain = null;
+    this.reverseAudioClipId = null;
+    this.pendingReassociateMediaId = null;
+    this.hasExternalSeek = false;
+    this.lastPropertiesClipId = null;
+    this.lastPropertiesSignature = null;
 
     // Initialize keyboard shortcuts
     this.keyboard = new KeyboardManager(this.state);
@@ -68,6 +83,11 @@ class YTPEditor {
     this.projectNewBtn = document.getElementById('projectNewBtn');
     this.projectLoadBtn = document.getElementById('projectLoadBtn');
     this.projectCancelBtn = document.getElementById('projectCancelBtn');
+    this.reassociateInput = document.createElement('input');
+    this.reassociateInput.type = 'file';
+    this.reassociateInput.accept = 'video/*,audio/*';
+    this.reassociateInput.hidden = true;
+    document.body.appendChild(this.reassociateInput);
 
     // Start preview render loop
     this.renderPreview();
@@ -144,6 +164,10 @@ class YTPEditor {
       });
     }
 
+    if (this.reassociateInput) {
+      this.reassociateInput.addEventListener('change', (e) => this.handleReassociateFile(e));
+    }
+
     // Volume control
     const volumeSlider = document.getElementById('volumeSlider');
     volumeSlider.addEventListener('input', (e) => {
@@ -192,9 +216,13 @@ class YTPEditor {
       // Store file reference (in a simple map for now, IndexedDB later)
       if (!this.mediaFiles) this.mediaFiles = new Map();
       this.mediaFiles.set(mediaId, file);
+      const isAudioOnly = file.type.startsWith('audio/');
+      const isVideoType = file.type.startsWith('video/');
       this.mediaInfo.set(mediaId, {
         hasAudio: metadata.hasAudio,
         hasVideo: metadata.hasVideo,
+        isAudioOnly,
+        isVideoType,
       });
 
       this.updateStatus(`Loaded ${file.name}`);
@@ -214,6 +242,7 @@ class YTPEditor {
       const video = document.createElement('video');
       video.preload = 'metadata';
       const isAudioOnly = file.type.startsWith('audio/');
+      const isVideoType = file.type.startsWith('video/');
 
       video.onloadedmetadata = () => {
         let hasAudio = null;
@@ -225,7 +254,7 @@ class YTPEditor {
           hasAudio = true;
         }
 
-        const hasVideo = !isAudioOnly && video.videoWidth > 0 && video.videoHeight > 0;
+        const hasVideo = isVideoType || (!isAudioOnly && video.videoWidth > 0 && video.videoHeight > 0);
 
         resolve({
           duration: video.duration * 1000, // Convert to ms
@@ -244,7 +273,7 @@ class YTPEditor {
           width: 1920,
           height: 1080,
           hasAudio: isAudioOnly ? true : null,
-          hasVideo: !isAudioOnly,
+          hasVideo: isVideoType || !isAudioOnly,
         });
         URL.revokeObjectURL(video.src);
       };
@@ -269,6 +298,7 @@ class YTPEditor {
     }
     if (state.isPlaying && playheadChanged && !isPlaybackTick) {
       // User or UI seek while playing; realign playback loop.
+      this.hasExternalSeek = true;
       this.startPlaybackFromState(state);
     }
     this.wasPlaying = state.isPlaying;
@@ -303,8 +333,44 @@ class YTPEditor {
     // Update media library UI
     this.renderMediaLibrary(state);
 
-    // Update properties panel if clip is selected
-    this.renderPropertiesPanel(state);
+    // Update properties panel only when selected clip data changes
+    const { clip: selectedClip, signature: selectedSignature } = this.getSelectedClipSignature(state);
+    const shouldRenderProperties = selectedSignature !== this.lastPropertiesSignature ||
+      state.selectedClipId !== this.lastPropertiesClipId;
+
+    if (shouldRenderProperties) {
+      this.renderPropertiesPanel(state);
+      this.lastPropertiesClipId = state.selectedClipId;
+      this.lastPropertiesSignature = selectedSignature;
+    }
+  }
+
+  /**
+   * Build a stable signature for selected clip properties
+   * @param {import('./core/types.js').EditorState} state
+   * @returns {{clip: import('./core/types.js').Clip|null, signature: string|null}}
+   */
+  getSelectedClipSignature(state) {
+    if (!state.selectedClipId) {
+      return { clip: null, signature: null };
+    }
+
+    const clip = state.clips.find(c => c.id === state.selectedClipId) || null;
+    if (!clip) {
+      return { clip: null, signature: null };
+    }
+
+    const signature = [
+      clip.id,
+      clip.name,
+      clip.speed,
+      clip.volume,
+      clip.muted,
+      clip.reversed,
+      clip.color,
+    ].join('|');
+
+    return { clip, signature };
   }
 
   /**
@@ -321,13 +387,28 @@ class YTPEditor {
     }
 
     state.mediaLibrary.forEach(media => {
+      const isMissing = !this.mediaFiles || !this.mediaFiles.has(media.id);
       const item = document.createElement('div');
-      item.className = 'media-item';
-      item.draggable = true;
+      item.className = `media-item${isMissing ? ' missing' : ''}`;
+      item.draggable = !isMissing;
+      if (isMissing) {
+        item.title = 'File missing - click to relink';
+      }
+
+      const header = document.createElement('div');
+      header.className = 'media-item-header';
 
       const name = document.createElement('div');
       name.className = 'media-item-name';
       name.textContent = media.name;
+      header.appendChild(name);
+
+      if (isMissing) {
+        const badge = document.createElement('span');
+        badge.className = 'media-item-missing';
+        badge.textContent = 'Missing';
+        header.appendChild(badge);
+      }
 
       const info = document.createElement('div');
       info.className = 'media-item-info';
@@ -335,22 +416,84 @@ class YTPEditor {
       const sizeMB = (media.size / 1024 / 1024).toFixed(2);
       info.textContent = `${durationSec}s · ${media.width}x${media.height} · ${sizeMB}MB`;
 
-      item.appendChild(name);
+      item.appendChild(header);
       item.appendChild(info);
 
       // Double-click to add to timeline
-      item.addEventListener('dblclick', () => {
-        this.addMediaToTimeline(media);
-      });
+      if (!isMissing) {
+        item.addEventListener('dblclick', () => {
+          this.addMediaToTimeline(media);
+        });
+      }
+
+      if (isMissing) {
+        item.addEventListener('click', () => {
+          this.requestMediaReassociate(media);
+        });
+      }
 
       // Drag and drop support
-      item.addEventListener('dragstart', (e) => {
-        e.dataTransfer.setData('mediaId', media.id);
-        e.dataTransfer.effectAllowed = 'copy';
-      });
+      if (!isMissing) {
+        item.addEventListener('dragstart', (e) => {
+          e.dataTransfer.setData('mediaId', media.id);
+          e.dataTransfer.effectAllowed = 'copy';
+        });
+      }
 
       mediaList.appendChild(item);
     });
+  }
+
+  /**
+   * Prompt user to relink missing media
+   * @param {import('./core/types.js').Media} media
+   */
+  requestMediaReassociate(media) {
+    if (!this.reassociateInput) return;
+    this.pendingReassociateMediaId = media.id;
+    this.reassociateInput.value = '';
+    this.reassociateInput.click();
+  }
+
+  /**
+   * Handle relinked media file selection
+   * @param {Event} e
+   */
+  async handleReassociateFile(e) {
+    const file = e.target.files && e.target.files[0];
+    const mediaId = this.pendingReassociateMediaId;
+    this.pendingReassociateMediaId = null;
+
+    if (!file || !mediaId) {
+      return;
+    }
+
+    this.updateStatus(`Relinking ${file.name}...`);
+    const metadata = await this.getVideoMetadata(file);
+
+    if (!this.mediaFiles) this.mediaFiles = new Map();
+    this.mediaFiles.set(mediaId, file);
+
+    const isAudioOnly = file.type.startsWith('audio/');
+    const isVideoType = file.type.startsWith('video/');
+    this.mediaInfo.set(mediaId, {
+      hasAudio: metadata.hasAudio,
+      hasVideo: metadata.hasVideo,
+      isAudioOnly,
+      isVideoType,
+    });
+
+    this.state.dispatch(actions.updateMedia(mediaId, {
+      name: file.name,
+      type: file.type,
+      size: file.size,
+      duration: metadata.duration,
+      width: metadata.width,
+      height: metadata.height,
+    }));
+
+    this.updateStatus(`Relinked ${file.name}`);
+    e.target.value = '';
   }
 
   /**
@@ -388,82 +531,80 @@ class YTPEditor {
     const clip = state.clips.find(c => c.id === state.selectedClipId);
     if (!clip) return;
 
+    const idPrefix = `clip-${clip.id}`;
+
     propertiesContent.innerHTML = `
       <div class="property-group">
-        <label class="property-label">Name</label>
-        <input type="text" class="property-input" id="clipName" value="${clip.name}">
+        <label class="property-label" for="${idPrefix}-name">Name</label>
+        <input type="text" class="property-input" id="${idPrefix}-name" value="${clip.name}">
       </div>
       <div class="property-group">
-        <label class="property-label">Speed</label>
-        <input type="range" class="property-slider" id="clipSpeed"
+        <label class="property-label" for="${idPrefix}-speed">Speed</label>
+        <input type="range" class="property-slider" id="${idPrefix}-speed"
                min="0.25" max="4" step="0.25" value="${clip.speed || 1}">
         <div style="text-align: center; font-size: 12px; margin-top: 4px;">
-          <span id="speedValue">${clip.speed || 1}x</span>
+          <span id="${idPrefix}-speed-value">${clip.speed || 1}x</span>
         </div>
       </div>
       <div class="property-group">
-        <label class="property-label">Volume</label>
-        <input type="range" class="property-slider" id="clipVolume"
+        <label class="property-label" for="${idPrefix}-volume">Volume</label>
+        <input type="range" class="property-slider" id="${idPrefix}-volume"
                min="0" max="1" step="0.01" value="${clip.volume !== undefined ? clip.volume : 1}">
         <div style="text-align: center; font-size: 12px; margin-top: 4px;">
-          <span id="volumeValue">${Math.round((clip.volume !== undefined ? clip.volume : 1) * 100)}%</span>
+          <span id="${idPrefix}-volume-value">${Math.round((clip.volume !== undefined ? clip.volume : 1) * 100)}%</span>
         </div>
       </div>
       <div class="property-group">
-        <label class="property-label">
-          <input type="checkbox" class="property-checkbox" id="clipMuted"
-                 ${clip.muted ? 'checked' : ''}>
-          Mute Audio
-        </label>
+        <input type="checkbox" class="property-checkbox" id="${idPrefix}-muted"
+               ${clip.muted ? 'checked' : ''}>
+        <label class="property-label" for="${idPrefix}-muted">Mute Audio</label>
       </div>
       <div class="property-group">
-        <label class="property-label">
-          <input type="checkbox" class="property-checkbox" id="clipReversed"
-                 ${clip.reversed ? 'checked' : ''}>
-          Reversed
-        </label>
+        <input type="checkbox" class="property-checkbox" id="${idPrefix}-reversed"
+               ${clip.reversed ? 'checked' : ''}>
+        <label class="property-label" for="${idPrefix}-reversed">Reversed</label>
       </div>
       <div class="property-group">
-        <label class="property-label">Color</label>
-        <input type="color" class="color-picker" id="clipColor" value="${clip.color || '#4a9eff'}">
+        <label class="property-label" for="${idPrefix}-color">Color</label>
+        <input type="color" class="color-picker" id="${idPrefix}-color" value="${clip.color || '#4a9eff'}">
       </div>
       <div class="property-group">
-        <button class="btn btn-secondary" id="deleteClipBtn" style="width: 100%;">
+        <button class="btn btn-secondary" id="${idPrefix}-delete" style="width: 100%;">
           Delete Clip
         </button>
       </div>
     `;
 
     // Add event listeners for property changes
-    document.getElementById('clipName').addEventListener('input', (e) => {
+    document.getElementById(`${idPrefix}-name`).addEventListener('input', (e) => {
       this.state.dispatch(actions.updateClip(clip.id, { name: e.target.value }));
     });
 
-    document.getElementById('clipSpeed').addEventListener('input', (e) => {
+    document.getElementById(`${idPrefix}-speed`).addEventListener('input', (e) => {
       const speed = parseFloat(e.target.value);
-      document.getElementById('speedValue').textContent = `${speed}x`;
+      document.getElementById(`${idPrefix}-speed-value`).textContent = `${speed}x`;
       this.state.dispatch(actions.setClipSpeed(clip.id, speed));
     });
 
-    document.getElementById('clipVolume').addEventListener('input', (e) => {
+    document.getElementById(`${idPrefix}-volume`).addEventListener('input', (e) => {
       const volume = parseFloat(e.target.value);
-      document.getElementById('volumeValue').textContent = `${Math.round(volume * 100)}%`;
+      document.getElementById(`${idPrefix}-volume-value`).textContent = `${Math.round(volume * 100)}%`;
       this.state.dispatch(actions.updateClip(clip.id, { volume }));
     });
 
-    document.getElementById('clipMuted').addEventListener('change', (e) => {
+    document.getElementById(`${idPrefix}-muted`).addEventListener('change', (e) => {
       this.state.dispatch(actions.updateClip(clip.id, { muted: e.target.checked }));
     });
 
-    document.getElementById('clipReversed').addEventListener('change', (e) => {
+    document.getElementById(`${idPrefix}-reversed`).addEventListener('change', (e) => {
       this.state.dispatch(actions.reverseClip(clip.id));
     });
 
-    document.getElementById('clipColor').addEventListener('input', (e) => {
+    document.getElementById(`${idPrefix}-color`).addEventListener('input', (e) => {
       this.state.dispatch(actions.updateClip(clip.id, { color: e.target.value }));
     });
 
-    document.getElementById('deleteClipBtn').addEventListener('click', () => {
+    document.getElementById(`${idPrefix}-delete`).addEventListener('click', () => {
       this.state.dispatch(actions.removeClip(clip.id));
     });
   }
@@ -564,6 +705,11 @@ class YTPEditor {
     this.isPlaybackLoopActive = false;
     this.isPlayheadUpdateFromPlayback = false;
     this.lastPlayhead = 0;
+    this.pendingReassociateMediaId = null;
+    this.lastPreviewVideoClipId = null;
+    this.lastPreviewAudioClipId = null;
+    this.lastPropertiesClipId = null;
+    this.lastPropertiesSignature = null;
     this.updateStatus('New project created (unsaved)');
   }
 
@@ -596,6 +742,11 @@ class YTPEditor {
       this.state.loadFromJSON(saved);
       this.clearMediaCaches();
       this.hideExportCommand();
+      this.pendingReassociateMediaId = null;
+      this.lastPreviewVideoClipId = null;
+      this.lastPreviewAudioClipId = null;
+      this.lastPropertiesClipId = null;
+      this.lastPropertiesSignature = null;
       this.updateStatus('Project loaded (reimport media files to preview)');
     } catch (error) {
       console.error('Failed to load project:', error);
@@ -627,6 +778,11 @@ class YTPEditor {
       });
       this.videoElements.clear();
     }
+
+    if (this.decodedAudio) {
+      this.decodedAudio.clear();
+    }
+    this.stopReverseAudio();
   }
 
   /**
@@ -730,11 +886,19 @@ class YTPEditor {
     const info = this.mediaInfo.get(mediaId) || {
       hasAudio: null,
       hasVideo: null,
+      isAudioOnly: false,
+      isVideoType: false,
       audioProbeStart: null,
     };
 
-    if (info.hasVideo === null) {
-      info.hasVideo = video.videoWidth > 0 && video.videoHeight > 0;
+    if (info.hasVideo !== true) {
+      if (video.videoWidth > 0 && video.videoHeight > 0) {
+        info.hasVideo = true;
+      } else if (info.isAudioOnly) {
+        info.hasVideo = false;
+      } else if (info.isVideoType) {
+        info.hasVideo = true;
+      }
     }
 
     if (info.hasAudio !== true && info.hasAudio !== false) {
@@ -767,6 +931,156 @@ class YTPEditor {
     }
 
     this.mediaInfo.set(mediaId, info);
+  }
+
+  /**
+   * Ensure an AudioContext exists and is running
+   */
+  ensureAudioContext() {
+    if (!this.audioContext) {
+      const AudioContextImpl = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextImpl) return null;
+      this.audioContext = new AudioContextImpl();
+    }
+
+    if (this.audioContext.state === 'suspended') {
+      this.audioContext.resume().catch(() => {});
+    }
+
+    return this.audioContext;
+  }
+
+  /**
+   * Decode audio data for a media file (async, cached)
+   * @param {string} mediaId
+   * @param {File} file
+   */
+  ensureDecodedAudio(mediaId, file) {
+    if (!file || !this.decodedAudio) return;
+    const existing = this.decodedAudio.get(mediaId);
+    if (existing && (existing.status === 'loading' || existing.status === 'ready')) {
+      return;
+    }
+
+    const audioContext = this.ensureAudioContext();
+    if (!audioContext) return;
+
+    this.decodedAudio.set(mediaId, { status: 'loading' });
+
+    file.arrayBuffer()
+      .then((buffer) => audioContext.decodeAudioData(buffer))
+      .then((audioBuffer) => {
+        const reversedBuffer = this.reverseAudioBuffer(audioBuffer);
+        this.decodedAudio.set(mediaId, {
+          status: 'ready',
+          buffer: audioBuffer,
+          reversedBuffer,
+        });
+      })
+      .catch((error) => {
+        console.warn('Failed to decode audio for reverse preview:', error);
+        this.decodedAudio.set(mediaId, { status: 'error' });
+      });
+  }
+
+  /**
+   * Create a reversed AudioBuffer
+   * @param {AudioBuffer} buffer
+   * @returns {AudioBuffer}
+   */
+  reverseAudioBuffer(buffer) {
+    const audioContext = this.ensureAudioContext();
+    if (!audioContext) return buffer;
+
+    const reversed = audioContext.createBuffer(
+      buffer.numberOfChannels,
+      buffer.length,
+      buffer.sampleRate
+    );
+
+    for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+      const input = buffer.getChannelData(channel);
+      const output = reversed.getChannelData(channel);
+      for (let i = 0, j = input.length - 1; i < input.length; i++, j--) {
+        output[i] = input[j];
+      }
+    }
+
+    return reversed;
+  }
+
+  /**
+   * Stop reverse audio playback
+   */
+  stopReverseAudio() {
+    if (this.reverseAudioNode) {
+      try {
+        this.reverseAudioNode.stop();
+      } catch (error) {
+        // Ignore stop errors
+      }
+      this.reverseAudioNode.disconnect();
+      this.reverseAudioNode = null;
+    }
+
+    if (this.reverseAudioGain) {
+      this.reverseAudioGain.disconnect();
+      this.reverseAudioGain = null;
+    }
+
+    this.reverseAudioClipId = null;
+  }
+
+  /**
+   * Sync reverse audio playback for a clip
+   * @param {import('./core/types.js').Clip} clip
+   * @param {import('./core/types.js').Media} media
+   * @param {File} file
+   * @param {number} clipTime
+   * @param {boolean} shouldSeek
+   * @param {number} gainValue
+   */
+  syncReverseAudio(clip, media, file, clipTime, shouldSeek, gainValue) {
+    const audioContext = this.ensureAudioContext();
+    if (!audioContext) return;
+
+    this.ensureDecodedAudio(media.id, file);
+    const entry = this.decodedAudio.get(media.id);
+    if (!entry || entry.status !== 'ready' || !entry.reversedBuffer) {
+      return;
+    }
+
+    const buffer = entry.reversedBuffer;
+    const durationSec = clip.duration / 1000;
+    const reverseStart = Math.max(0, buffer.duration - clipTime);
+    const remaining = Math.min(durationSec, buffer.duration - reverseStart);
+
+    if (remaining <= 0) {
+      this.stopReverseAudio();
+      return;
+    }
+
+    const clipChanged = this.reverseAudioClipId !== clip.id;
+    const shouldRestart = shouldSeek || clipChanged || !this.reverseAudioNode;
+
+    if (shouldRestart) {
+      this.stopReverseAudio();
+
+      const source = audioContext.createBufferSource();
+      const gainNode = audioContext.createGain();
+      gainNode.gain.value = gainValue;
+
+      source.buffer = buffer;
+      source.connect(gainNode).connect(audioContext.destination);
+
+      source.start(audioContext.currentTime, reverseStart, remaining);
+
+      this.reverseAudioNode = source;
+      this.reverseAudioGain = gainNode;
+      this.reverseAudioClipId = clip.id;
+    } else if (this.reverseAudioGain) {
+      this.reverseAudioGain.gain.value = gainValue;
+    }
   }
 
   /**
@@ -830,10 +1144,13 @@ class YTPEditor {
           this.exportAudioWarning = true;
         }
 
+        const reverseVideo = segment.clip.reversed ? ',reverse' : '';
+        const reverseAudio = segment.clip.reversed ? ',areverse' : '';
+
         if (hasVideo) {
           filterParts.push(
             `[${inputIndex}:v]trim=start=${startSec}:end=${endSec},` +
-            `setpts=PTS-STARTPTS,${scaleFilter},format=yuv420p[${vLabel}]`
+            `setpts=PTS-STARTPTS${reverseVideo},${scaleFilter},format=yuv420p[${vLabel}]`
           );
         } else {
           const durationSec = this.formatSeconds(durationMs);
@@ -846,7 +1163,7 @@ class YTPEditor {
         if (hasAudio) {
           filterParts.push(
             `[${inputIndex}:a]atrim=start=${startSec}:end=${endSec},` +
-            `asetpts=PTS-STARTPTS[${aLabel}]`
+            `asetpts=PTS-STARTPTS${reverseAudio}[${aLabel}]`
           );
         } else {
           const durationSec = this.formatSeconds(durationMs);
@@ -1002,6 +1319,7 @@ class YTPEditor {
   renderPreview() {
     const state = this.state.getState();
     const playhead = state.playhead;
+    const now = performance.now();
 
     // Clear canvas
     const width = this.previewCanvas.width;
@@ -1009,112 +1327,242 @@ class YTPEditor {
     this.previewCtx.fillStyle = '#000';
     this.previewCtx.fillRect(0, 0, width, height);
 
-    // Find topmost clip active at current playhead
+    // Find active clips at current playhead
     const activeClips = state.clips
       .filter(clip => playhead >= clip.start && playhead < clip.start + clip.duration);
 
-    let topmostClip = null;
-    for (const clip of activeClips) {
-      if (!topmostClip || clip.trackId < topmostClip.trackId) {
-        topmostClip = clip;
+    const getTopmostClip = (clips) => {
+      let topmost = null;
+      for (const clip of clips) {
+        if (!topmost || clip.trackId < topmost.trackId) {
+          topmost = clip;
+        }
       }
-    }
+      return topmost;
+    };
+
+    const getClipTime = (clip) => {
+      const clipOffset = playhead - clip.start;
+      const clipDuration = clip.duration;
+      const trimStart = clip.trimStart || 0;
+      let sourceOffset = clip.reversed ? (clipDuration - clipOffset) : clipOffset;
+      if (clip.reversed && sourceOffset >= clipDuration) {
+        sourceOffset = Math.max(0, clipDuration - 1);
+      }
+      sourceOffset = Math.max(0, Math.min(clipDuration, sourceOffset));
+      return (trimStart + sourceOffset) / 1000;
+    };
+
+    const getMediaForClip = (clip) => state.mediaLibrary.find(m => m.id === clip.mediaId) || null;
+
+    const getLoadedMediaForClip = (clip) => {
+      const media = getMediaForClip(clip);
+      if (!media || !this.mediaFiles || !this.mediaFiles.has(media.id)) {
+        return null;
+      }
+      return media;
+    };
+
+    const getVideoForMedia = (media) => {
+      const file = this.mediaFiles.get(media.id);
+      if (!this.videoElements.has(media.id)) {
+        const video = document.createElement('video');
+        video.src = URL.createObjectURL(file);
+        video.muted = false; // Enable audio
+        video.preload = 'auto';
+        video.volume = this.masterVolume;
+        this.videoElements.set(media.id, video);
+      }
+      const video = this.videoElements.get(media.id);
+      this.updateMediaInfoFromVideo(media.id, video);
+      return video;
+    };
 
     const activeMediaIds = new Set();
+    const shouldResync = this.hasExternalSeek === true;
+    let didDrawFrame = false;
 
-    if (topmostClip) {
-      const media = state.mediaLibrary.find(m => m.id === topmostClip.mediaId);
+    const topmostAudioClip = getTopmostClip(activeClips);
+    const videoCandidates = activeClips.filter((clip) => {
+      const media = getMediaForClip(clip);
+      if (!media) return false;
+      const mediaInfo = this.mediaInfo.get(media.id);
+      const isAudioOnly = media.type && media.type.startsWith('audio/');
+      const isVideoType = media.type && media.type.startsWith('video/');
+      if (mediaInfo) {
+        if (mediaInfo.hasVideo === true) return true;
+        if (mediaInfo.hasVideo === false) return false;
+        return mediaInfo.isVideoType || isVideoType || !isAudioOnly;
+      }
+      return isVideoType || !isAudioOnly;
+    });
+    const topmostVideoClip = getTopmostClip(videoCandidates);
 
-      if (media && this.mediaFiles && this.mediaFiles.has(media.id)) {
-        const file = this.mediaFiles.get(media.id);
+    const audioClipMedia = topmostAudioClip ? getLoadedMediaForClip(topmostAudioClip) : null;
+    const videoClipMedia = topmostVideoClip ? getLoadedMediaForClip(topmostVideoClip) : null;
 
-        // Get or create video element for this media
-        if (!this.videoElements.has(media.id)) {
-          const video = document.createElement('video');
-          video.src = URL.createObjectURL(file);
-          video.muted = false; // Enable audio
-          video.preload = 'auto';
-          video.volume = this.masterVolume;
-          this.videoElements.set(media.id, video);
-        }
+    if (topmostAudioClip && audioClipMedia) {
+      const video = getVideoForMedia(audioClipMedia);
+      const audioFile = this.mediaFiles.get(audioClipMedia.id);
+      activeMediaIds.add(audioClipMedia.id);
 
-        const video = this.videoElements.get(media.id);
-        activeMediaIds.add(media.id);
-        this.updateMediaInfoFromVideo(media.id, video);
+      const clipTime = getClipTime(topmostAudioClip);
+      const clipVolume = topmostAudioClip.volume !== undefined ? topmostAudioClip.volume : 1.0;
+      const isMuted = topmostAudioClip.muted || false;
+      const isReversed = topmostAudioClip.reversed === true;
+      const targetVolume = isMuted ? 0 : (clipVolume * this.masterVolume);
+      const clipChanged = this.lastPreviewAudioClipId !== topmostAudioClip.id;
+      const shouldSeek = shouldResync || clipChanged || video.paused;
 
-        // Calculate time within clip (in seconds)
-        const clipTime = (playhead - topmostClip.start + topmostClip.trimStart) / 1000;
+      video.volume = targetVolume;
+      video.muted = targetVolume === 0 || isReversed;
 
-        // Apply clip volume and mute settings (topmost clip gets audio)
-        const clipVolume = topmostClip.volume !== undefined ? topmostClip.volume : 1.0;
-        const isMuted = topmostClip.muted || false;
-        const targetVolume = isMuted ? 0 : (clipVolume * this.masterVolume);
-        video.volume = targetVolume;
-        video.muted = targetVolume === 0;
-
-        // Handle playback vs scrubbing
-        if (state.isPlaying) {
-          // During playback, play the video
-          const timeDiff = Math.abs(video.currentTime - clipTime);
-          if (timeDiff > 0.1) {
-            video.currentTime = clipTime;
-          }
-          if (video.paused) {
-            video.currentTime = clipTime;
-            video.play().catch(() => {}); // Ignore autoplay errors
-          }
-        } else {
-          // During scrubbing, pause and seek
+      if (state.isPlaying) {
+        if (isReversed) {
           if (!video.paused) {
             video.pause();
           }
-
-          // Only seek if difference is significant (more than 0.05 seconds)
           const timeDiff = Math.abs(video.currentTime - clipTime);
-          if (timeDiff > 0.05) {
-            // Throttle seeks - only seek if we haven't seeked recently
-            const now = Date.now();
-            if (!this.lastSeekTime || now - this.lastSeekTime > 50) {
-              video.currentTime = clipTime;
-              this.lastSeekTime = now;
-            }
+          const allowSeek = shouldSeek || (now - this.lastReverseSeekTime > 30 && timeDiff > 0.03);
+          if (allowSeek) {
+            video.currentTime = clipTime;
+            this.lastReverseSeekTime = now;
+          }
+          this.syncReverseAudio(
+            topmostAudioClip,
+            audioClipMedia,
+            audioFile,
+            clipTime,
+            shouldSeek,
+            targetVolume
+          );
+        } else {
+          this.stopReverseAudio();
+          if (shouldSeek) {
+            video.currentTime = clipTime;
+          }
+          if (video.paused) {
+            video.play().catch(() => {}); // Ignore autoplay errors
           }
         }
-
-        // Draw video frame on canvas (only if ready)
-        if (video.readyState >= video.HAVE_CURRENT_DATA) {
-          // Calculate aspect-fit scaling
-          const videoAspect = video.videoWidth / video.videoHeight;
-          const canvasAspect = width / height;
-
-          let drawWidth, drawHeight, drawX, drawY;
-
-          if (videoAspect > canvasAspect) {
-            // Video is wider
-            drawWidth = width;
-            drawHeight = width / videoAspect;
-            drawX = 0;
-            drawY = (height - drawHeight) / 2;
-          } else {
-            // Video is taller
-            drawHeight = height;
-            drawWidth = height * videoAspect;
-            drawX = (width - drawWidth) / 2;
-            drawY = 0;
+      } else {
+        this.stopReverseAudio();
+        if (!video.paused) {
+          video.pause();
+        }
+        const timeDiff = Math.abs(video.currentTime - clipTime);
+        if (timeDiff > 0.05) {
+          const now = Date.now();
+          if (!this.lastSeekTime || now - this.lastSeekTime > 50) {
+            video.currentTime = clipTime;
+            this.lastSeekTime = now;
           }
-
-          // Draw the topmost clip's frame
-          this.previewCtx.drawImage(video, drawX, drawY, drawWidth, drawHeight);
         }
       }
+
+      this.lastPreviewAudioClipId = topmostAudioClip.id;
     } else {
-      // No active clips, show placeholder
+      this.stopReverseAudio();
+      this.lastPreviewAudioClipId = null;
+    }
+
+    if (topmostVideoClip && videoClipMedia) {
+      const video = getVideoForMedia(videoClipMedia);
+      activeMediaIds.add(videoClipMedia.id);
+
+      const clipTime = getClipTime(topmostVideoClip);
+      const isReversed = topmostVideoClip.reversed === true;
+      const clipChanged = this.lastPreviewVideoClipId !== topmostVideoClip.id;
+      const shouldSeek = shouldResync || clipChanged || video.paused;
+
+      if (!audioClipMedia || audioClipMedia.id !== videoClipMedia.id) {
+        video.volume = 0;
+        video.muted = true;
+      }
+
+      if (state.isPlaying) {
+        if (isReversed) {
+          if (!video.paused) {
+            video.pause();
+          }
+          const timeDiff = Math.abs(video.currentTime - clipTime);
+          const allowSeek = shouldSeek || (now - this.lastReverseSeekTime > 30 && timeDiff > 0.03);
+          if (allowSeek) {
+            video.currentTime = clipTime;
+            this.lastReverseSeekTime = now;
+          }
+        } else {
+          if (shouldSeek) {
+            video.currentTime = clipTime;
+          }
+          if (video.paused) {
+            video.play().catch(() => {}); // Ignore autoplay errors
+          }
+        }
+      } else {
+        if (!video.paused) {
+          video.pause();
+        }
+        const timeDiff = Math.abs(video.currentTime - clipTime);
+        if (timeDiff > 0.05) {
+          const now = Date.now();
+          if (!this.lastSeekTime || now - this.lastSeekTime > 50) {
+            video.currentTime = clipTime;
+            this.lastSeekTime = now;
+          }
+        }
+      }
+
+      if (video.readyState >= video.HAVE_CURRENT_DATA) {
+        const videoAspect = video.videoWidth / video.videoHeight;
+        const canvasAspect = width / height;
+
+        let drawWidth, drawHeight, drawX, drawY;
+
+        if (videoAspect > canvasAspect) {
+          drawWidth = width;
+          drawHeight = width / videoAspect;
+          drawX = 0;
+          drawY = (height - drawHeight) / 2;
+        } else {
+          drawHeight = height;
+          drawWidth = height * videoAspect;
+          drawX = (width - drawWidth) / 2;
+          drawY = 0;
+        }
+
+        this.previewCtx.drawImage(video, drawX, drawY, drawWidth, drawHeight);
+        if (this.previewFrameCtx) {
+          this.previewFrameCtx.clearRect(0, 0, width, height);
+          this.previewFrameCtx.drawImage(video, drawX, drawY, drawWidth, drawHeight);
+          this.hasPreviewFrame = true;
+        }
+        didDrawFrame = true;
+      }
+
+      this.lastPreviewVideoClipId = topmostVideoClip.id;
+    } else {
+      this.lastPreviewVideoClipId = null;
+    }
+
+    if (!topmostVideoClip) {
+      const message = topmostAudioClip ? 'Audio only at playhead' : 'No clips at playhead';
       this.previewCtx.fillStyle = '#666';
       this.previewCtx.font = '24px sans-serif';
       this.previewCtx.textAlign = 'center';
       this.previewCtx.textBaseline = 'middle';
-      this.previewCtx.fillText('No clips at playhead', width / 2, height / 2);
+      this.previewCtx.fillText(message, width / 2, height / 2);
+    } else if (!videoClipMedia) {
+      this.previewCtx.fillStyle = '#666';
+      this.previewCtx.font = '20px sans-serif';
+      this.previewCtx.textAlign = 'center';
+      this.previewCtx.textBaseline = 'middle';
+      this.previewCtx.fillText('Media not loaded (reimport file)', width / 2, height / 2);
+    } else if (!didDrawFrame && this.hasPreviewFrame && this.previewFrameBuffer) {
+      this.previewCtx.drawImage(this.previewFrameBuffer, 0, 0, width, height);
     }
+
+    this.hasExternalSeek = false;
 
     // Pause any media that is not active to respect clip bounds
     if (this.videoElements) {
@@ -1150,6 +1598,11 @@ class YTPEditor {
     this.previewCanvas.height = height;
     this.previewCanvas.style.width = width + 'px';
     this.previewCanvas.style.height = height + 'px';
+    if (this.previewFrameBuffer) {
+      this.previewFrameBuffer.width = width;
+      this.previewFrameBuffer.height = height;
+      this.hasPreviewFrame = false;
+    }
   }
 
   /**
