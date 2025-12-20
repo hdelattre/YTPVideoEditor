@@ -165,7 +165,10 @@ export class KeyboardManager {
 
   deleteClip() {
     const state = this.state.getState();
-    if (state.selectedClipId) {
+    const selectedIds = Array.isArray(state.selectedClipIds) ? state.selectedClipIds : [];
+    if (selectedIds.length > 0) {
+      this.state.dispatch(actions.removeClips(selectedIds));
+    } else if (state.selectedClipId) {
       this.state.dispatch(actions.removeClip(state.selectedClipId));
     }
   }
@@ -175,12 +178,16 @@ export class KeyboardManager {
    */
   copyClip() {
     const state = this.state.getState();
-    const selectedClip = state.clips.find(c => c.id === state.selectedClipId);
+    const selectedIds = Array.isArray(state.selectedClipIds) && state.selectedClipIds.length > 0
+      ? state.selectedClipIds
+      : (state.selectedClipId ? [state.selectedClipId] : []);
+    const selectedClips = state.clips.filter(c => selectedIds.includes(c.id));
 
-    if (selectedClip) {
-      // Store in a global clipboard variable (simple implementation)
-      window._ytpClipboard = { ...selectedClip };
-      console.log('Clip copied');
+    if (selectedClips.length > 0) {
+      window._ytpClipboard = {
+        clips: selectedClips.map(clip => ({ ...clip })),
+      };
+      console.log('Clips copied');
     }
   }
 
@@ -196,7 +203,24 @@ export class KeyboardManager {
     const state = this.state.getState();
     const clipData = window._ytpClipboard;
 
-    // Paste at current playhead
+    if (clipData.clips && Array.isArray(clipData.clips)) {
+      const clips = clipData.clips;
+      const minStart = Math.min(...clips.map(clip => clip.start));
+      const offset = state.playhead - minStart;
+
+      clips.forEach(clip => {
+        this.state.dispatch(actions.addClip({
+          ...clip,
+          id: crypto.randomUUID(),
+          start: clip.start + offset,
+        }));
+      });
+
+      console.log('Clips pasted');
+      return;
+    }
+
+    // Backward compatibility for single clip
     this.state.dispatch(actions.addClip({
       ...clipData,
       id: crypto.randomUUID(),
@@ -211,7 +235,12 @@ export class KeyboardManager {
    */
   reverseClip() {
     const state = this.state.getState();
-    if (state.selectedClipId) {
+    const selectedIds = Array.isArray(state.selectedClipIds) ? state.selectedClipIds : [];
+    if (selectedIds.length > 0) {
+      selectedIds.forEach(id => {
+        this.state.dispatch(actions.reverseClip(id));
+      });
+    } else if (state.selectedClipId) {
       this.state.dispatch(actions.reverseClip(state.selectedClipId));
     }
   }
@@ -222,12 +251,19 @@ export class KeyboardManager {
    */
   adjustSpeed(delta) {
     const state = this.state.getState();
-    const selectedClip = state.clips.find(c => c.id === state.selectedClipId);
+    const selectedIds = Array.isArray(state.selectedClipIds) && state.selectedClipIds.length > 0
+      ? state.selectedClipIds
+      : (state.selectedClipId ? [state.selectedClipId] : []);
+    const selectedClips = state.clips.filter(c => selectedIds.includes(c.id));
 
-    if (selectedClip) {
-      const currentSpeed = selectedClip.speed || 1.0;
+    if (selectedClips.length > 0) {
+      const currentSpeed = selectedClips[0].speed || 1.0;
       const newSpeed = Math.max(0.25, Math.min(4.0, currentSpeed + delta));
-      this.state.dispatch(actions.setClipSpeed(selectedClip.id, newSpeed));
+      if (selectedClips.length > 1) {
+        this.state.dispatch(actions.setClipsSpeed(selectedIds, newSpeed));
+      } else {
+        this.state.dispatch(actions.setClipSpeed(selectedClips[0].id, newSpeed));
+      }
     }
   }
 

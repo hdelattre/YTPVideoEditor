@@ -77,6 +77,7 @@
  * @property {number} playhead - Current playhead position (ms)
  * @property {number} zoom - Zoom level (-5 to 5)
  * @property {string|null} selectedClipId - ID of selected clip
+ * @property {string[]} selectedClipIds - IDs of selected clips
  * @property {boolean} isPlaying - Is timeline playing
  * @property {ExportState} exportState - Export progress state
  * @property {number} scrollX - Timeline horizontal scroll position

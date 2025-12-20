@@ -42,6 +42,14 @@ export function removeClip(clipId) {
     if (state.selectedClipId === clipId) {
       state.selectedClipId = null;
     }
+    if (Array.isArray(state.selectedClipIds)) {
+      state.selectedClipIds = state.selectedClipIds.filter(id => id !== clipId);
+      if (state.selectedClipIds.length === 0) {
+        state.selectedClipId = null;
+      } else if (!state.selectedClipIds.includes(state.selectedClipId)) {
+        state.selectedClipId = state.selectedClipIds[0] || null;
+      }
+    }
     return state;
   };
 }
@@ -105,6 +113,63 @@ export function splitClip(clipId, splitTime) {
 export function selectClip(clipId) {
   return (state) => {
     state.selectedClipId = clipId;
+    state.selectedClipIds = clipId ? [clipId] : [];
+    return state;
+  };
+}
+
+/**
+ * Set multiple selected clips
+ * @param {string[]} clipIds
+ * @param {string|null} primaryId
+ * @returns {import('./types.js').ActionFunction}
+ */
+export function setSelection(clipIds, primaryId = null) {
+  return (state) => {
+    const unique = Array.from(new Set(clipIds.filter(Boolean)));
+    state.selectedClipIds = unique;
+    if (primaryId !== null) {
+      state.selectedClipId = primaryId;
+    } else {
+      state.selectedClipId = unique[0] || null;
+    }
+    return state;
+  };
+}
+
+/**
+ * Add a clip to selection
+ * @param {string} clipId
+ * @returns {import('./types.js').ActionFunction}
+ */
+export function addClipToSelection(clipId) {
+  return (state) => {
+    const ids = new Set(state.selectedClipIds || []);
+    ids.add(clipId);
+    state.selectedClipIds = Array.from(ids);
+    state.selectedClipId = clipId;
+    return state;
+  };
+}
+
+/**
+ * Toggle clip selection
+ * @param {string} clipId
+ * @returns {import('./types.js').ActionFunction}
+ */
+export function toggleClipSelection(clipId) {
+  return (state) => {
+    const ids = new Set(state.selectedClipIds || []);
+    if (ids.has(clipId)) {
+      ids.delete(clipId);
+    } else {
+      ids.add(clipId);
+      state.selectedClipId = clipId;
+    }
+    state.selectedClipIds = Array.from(ids);
+    if (!state.selectedClipIds.includes(state.selectedClipId)) {
+      state.selectedClipId = state.selectedClipIds[0] || null;
+    }
     return state;
   };
 }
@@ -183,6 +248,13 @@ export function removeMedia(mediaId) {
     state.mediaLibrary = state.mediaLibrary.filter(m => m.id !== mediaId);
     // Also remove any clips using this media
     state.clips = state.clips.filter(c => c.mediaId !== mediaId);
+    if (Array.isArray(state.selectedClipIds)) {
+      const remainingIds = new Set(state.clips.map(c => c.id));
+      state.selectedClipIds = state.selectedClipIds.filter(id => remainingIds.has(id));
+      if (!state.selectedClipIds.includes(state.selectedClipId)) {
+        state.selectedClipId = state.selectedClipIds[0] || null;
+      }
+    }
     return state;
   };
 }
@@ -231,6 +303,66 @@ export function updateTrack(trackId, updates) {
     const track = state.tracks.find(t => t.id === trackId);
     if (track) {
       Object.assign(track, updates);
+    }
+    return state;
+  };
+}
+
+/**
+ * Update multiple clips with same fields
+ * @param {string[]} clipIds
+ * @param {Partial<import('./types.js').Clip>} updates
+ * @returns {import('./types.js').ActionFunction}
+ */
+export function updateClips(clipIds, updates) {
+  return (state) => {
+    const idSet = new Set(clipIds);
+    state.clips.forEach(clip => {
+      if (idSet.has(clip.id)) {
+        Object.assign(clip, updates);
+      }
+    });
+    return state;
+  };
+}
+
+/**
+ * Move multiple clips with per-clip values
+ * @param {Array<{id: string, start?: number, trackId?: number}>} moves
+ * @returns {import('./types.js').ActionFunction}
+ */
+export function moveClips(moves) {
+  return (state) => {
+    const moveById = new Map(moves.map(move => [move.id, move]));
+    state.clips.forEach(clip => {
+      const move = moveById.get(clip.id);
+      if (move) {
+        if (typeof move.start === 'number') {
+          clip.start = move.start;
+        }
+        if (typeof move.trackId === 'number') {
+          clip.trackId = move.trackId;
+        }
+      }
+    });
+    return state;
+  };
+}
+
+/**
+ * Remove multiple clips
+ * @param {string[]} clipIds
+ * @returns {import('./types.js').ActionFunction}
+ */
+export function removeClips(clipIds) {
+  return (state) => {
+    const idSet = new Set(clipIds);
+    state.clips = state.clips.filter(c => !idSet.has(c.id));
+    if (Array.isArray(state.selectedClipIds)) {
+      state.selectedClipIds = state.selectedClipIds.filter(id => !idSet.has(id));
+      if (!state.selectedClipIds.includes(state.selectedClipId)) {
+        state.selectedClipId = state.selectedClipIds[0] || null;
+      }
     }
     return state;
   };
@@ -289,6 +421,25 @@ export function setClipSpeed(clipId, speed) {
       // Adjust duration based on speed
       clip.duration = (clip.trimEnd || clip.duration) / clip.speed;
     }
+    return state;
+  };
+}
+
+/**
+ * Adjust speed for multiple clips
+ * @param {string[]} clipIds
+ * @param {number} speed
+ * @returns {import('./types.js').ActionFunction}
+ */
+export function setClipsSpeed(clipIds, speed) {
+  return (state) => {
+    const idSet = new Set(clipIds);
+    state.clips.forEach(clip => {
+      if (idSet.has(clip.id)) {
+        clip.speed = Math.max(0.25, Math.min(4.0, speed));
+        clip.duration = (clip.trimEnd || clip.duration) / clip.speed;
+      }
+    });
     return state;
   };
 }

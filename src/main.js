@@ -333,10 +333,12 @@ class YTPEditor {
     // Update media library UI
     this.renderMediaLibrary(state);
 
-    // Update properties panel only when selected clip data changes
-    const { clip: selectedClip, signature: selectedSignature } = this.getSelectedClipSignature(state);
-    const shouldRenderProperties = selectedSignature !== this.lastPropertiesSignature ||
-      state.selectedClipId !== this.lastPropertiesClipId;
+    // Update properties panel only when selected clip changes or when not actively editing
+    const { signature: selectedSignature } = this.getSelectedClipSignature(state);
+    const propertiesContent = document.getElementById('propertiesContent');
+    const isEditing = propertiesContent && propertiesContent.contains(document.activeElement);
+    const clipChanged = state.selectedClipId !== this.lastPropertiesClipId;
+    const shouldRenderProperties = clipChanged || (!isEditing && selectedSignature !== this.lastPropertiesSignature);
 
     if (shouldRenderProperties) {
       this.renderPropertiesPanel(state);
@@ -351,26 +353,46 @@ class YTPEditor {
    * @returns {{clip: import('./core/types.js').Clip|null, signature: string|null}}
    */
   getSelectedClipSignature(state) {
-    if (!state.selectedClipId) {
+    const selectedIds = Array.isArray(state.selectedClipIds) && state.selectedClipIds.length > 0
+      ? state.selectedClipIds
+      : (state.selectedClipId ? [state.selectedClipId] : []);
+
+    if (selectedIds.length === 0) {
       return { clip: null, signature: null };
     }
 
-    const clip = state.clips.find(c => c.id === state.selectedClipId) || null;
-    if (!clip) {
+    const selectedClips = state.clips.filter(c => selectedIds.includes(c.id));
+    if (selectedClips.length === 0) {
       return { clip: null, signature: null };
     }
 
-    const signature = [
-      clip.id,
-      clip.name,
-      clip.speed,
-      clip.volume,
-      clip.muted,
-      clip.reversed,
-      clip.color,
-    ].join('|');
+    if (selectedClips.length === 1) {
+      const clip = selectedClips[0];
+      const signature = [
+        clip.id,
+        clip.name,
+        clip.speed,
+        clip.volume,
+        clip.muted,
+        clip.reversed,
+        clip.color,
+      ].join('|');
+      return { clip, signature };
+    }
 
-    return { clip, signature };
+    const signature = selectedClips
+      .map(clip => [
+        clip.id,
+        clip.name,
+        clip.speed,
+        clip.volume,
+        clip.muted,
+        clip.reversed,
+        clip.color,
+      ].join(':'))
+      .join('|');
+
+    return { clip: null, signature };
   }
 
   /**
@@ -523,12 +545,117 @@ class YTPEditor {
   renderPropertiesPanel(state) {
     const propertiesContent = document.getElementById('propertiesContent');
 
-    if (!state.selectedClipId) {
+    const selectedIds = Array.isArray(state.selectedClipIds) && state.selectedClipIds.length > 0
+      ? state.selectedClipIds
+      : (state.selectedClipId ? [state.selectedClipId] : []);
+
+    if (selectedIds.length === 0) {
       propertiesContent.innerHTML = '<p class="empty-message">Select a clip to edit properties</p>';
       return;
     }
 
-    const clip = state.clips.find(c => c.id === state.selectedClipId);
+    if (selectedIds.length > 1) {
+      const selectedClips = state.clips.filter(c => selectedIds.includes(c.id));
+      if (selectedClips.length === 0) {
+        propertiesContent.innerHTML = '<p class="empty-message">Select a clip to edit properties</p>';
+        return;
+      }
+
+      const mixedTag = (isMixed) => isMixed ? '<span class="property-mixed">Mixed</span>' : '';
+      const firstClip = selectedClips[0];
+      const allSame = (getValue) => selectedClips.every(clip => getValue(clip) === getValue(firstClip));
+
+      const speedValue = firstClip.speed || 1;
+      const volumeValue = firstClip.volume !== undefined ? firstClip.volume : 1;
+      const colorValue = firstClip.color || '#4a9eff';
+      const muteMixed = !allSame(clip => Boolean(clip.muted));
+      const reverseMixed = !allSame(clip => Boolean(clip.reversed));
+      const speedMixed = !allSame(clip => clip.speed || 1);
+      const volumeMixed = !allSame(clip => clip.volume !== undefined ? clip.volume : 1);
+      const colorMixed = !allSame(clip => clip.color || '#4a9eff');
+
+      propertiesContent.innerHTML = `
+        <p class="multi-select-label">Editing ${selectedClips.length} clips</p>
+        <div class="property-group">
+          <label class="property-label" for="multi-speed">Speed ${mixedTag(speedMixed)}</label>
+          <input type="range" class="property-slider" id="multi-speed"
+                 min="0.25" max="4" step="0.25" value="${speedValue}">
+          <div style="text-align: center; font-size: 12px; margin-top: 4px;">
+            <span id="multi-speed-value">${speedValue}x</span>
+          </div>
+        </div>
+        <div class="property-group">
+          <label class="property-label" for="multi-volume">Volume ${mixedTag(volumeMixed)}</label>
+          <input type="range" class="property-slider" id="multi-volume"
+                 min="0" max="1" step="0.01" value="${volumeValue}">
+          <div style="text-align: center; font-size: 12px; margin-top: 4px;">
+            <span id="multi-volume-value">${Math.round(volumeValue * 100)}%</span>
+          </div>
+        </div>
+        <div class="property-group">
+          <input type="checkbox" class="property-checkbox" id="multi-muted">
+          <label class="property-label" for="multi-muted">Mute Audio ${mixedTag(muteMixed)}</label>
+        </div>
+        <div class="property-group">
+          <input type="checkbox" class="property-checkbox" id="multi-reversed">
+          <label class="property-label" for="multi-reversed">Reversed ${mixedTag(reverseMixed)}</label>
+        </div>
+        <div class="property-group">
+          <label class="property-label" for="multi-color">Color ${mixedTag(colorMixed)}</label>
+          <input type="color" class="color-picker" id="multi-color" value="${colorValue}">
+        </div>
+        <div class="property-group">
+          <button class="btn btn-secondary" id="multi-delete" style="width: 100%;">
+            Delete ${selectedClips.length} Clips
+          </button>
+        </div>
+      `;
+
+      const muteInput = document.getElementById('multi-muted');
+      const reverseInput = document.getElementById('multi-reversed');
+
+      if (muteInput) {
+        muteInput.checked = selectedClips.every(clip => Boolean(clip.muted));
+        muteInput.indeterminate = muteMixed;
+        muteInput.addEventListener('change', (e) => {
+          muteInput.indeterminate = false;
+          this.state.dispatch(actions.updateClips(selectedIds, { muted: e.target.checked }));
+        });
+      }
+
+      if (reverseInput) {
+        reverseInput.checked = selectedClips.every(clip => Boolean(clip.reversed));
+        reverseInput.indeterminate = reverseMixed;
+        reverseInput.addEventListener('change', (e) => {
+          reverseInput.indeterminate = false;
+          this.state.dispatch(actions.updateClips(selectedIds, { reversed: e.target.checked }));
+        });
+      }
+
+      document.getElementById('multi-speed').addEventListener('input', (e) => {
+        const speed = parseFloat(e.target.value);
+        document.getElementById('multi-speed-value').textContent = `${speed}x`;
+        this.state.dispatch(actions.setClipsSpeed(selectedIds, speed));
+      });
+
+      document.getElementById('multi-volume').addEventListener('input', (e) => {
+        const volume = parseFloat(e.target.value);
+        document.getElementById('multi-volume-value').textContent = `${Math.round(volume * 100)}%`;
+        this.state.dispatch(actions.updateClips(selectedIds, { volume }));
+      });
+
+      document.getElementById('multi-color').addEventListener('input', (e) => {
+        this.state.dispatch(actions.updateClips(selectedIds, { color: e.target.value }));
+      });
+
+      document.getElementById('multi-delete').addEventListener('click', () => {
+        this.state.dispatch(actions.removeClips(selectedIds));
+      });
+
+      return;
+    }
+
+    const clip = state.clips.find(c => c.id === selectedIds[0]);
     if (!clip) return;
 
     const idPrefix = `clip-${clip.id}`;

@@ -43,6 +43,7 @@ export class StateManager {
       playhead: 0,
       zoom: 0,
       selectedClipId: null,
+      selectedClipIds: [],
       isPlaying: false,
       exportState: {
         isExporting: false,
@@ -216,6 +217,11 @@ export class StateManager {
   loadFromJSON(json) {
     try {
       const loadedState = JSON.parse(json);
+      if (!Array.isArray(loadedState.selectedClipIds)) {
+        loadedState.selectedClipIds = loadedState.selectedClipId
+          ? [loadedState.selectedClipId]
+          : [];
+      }
       this.state = loadedState;
       this.history = [];
       this.future = [];

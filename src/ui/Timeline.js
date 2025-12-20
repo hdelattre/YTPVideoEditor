@@ -191,7 +191,8 @@ export class Timeline {
     const width = Math.max(MIN_CLIP_WIDTH, timeToPixels(clip.duration, state.zoom));
     const height = TRACK_HEIGHT - 4;
 
-    const selected = clip.id === state.selectedClipId;
+    const selectedIds = Array.isArray(state.selectedClipIds) ? state.selectedClipIds : [];
+    const selected = selectedIds.includes(clip.id) || clip.id === state.selectedClipId;
 
     // Draw clip
     this.renderer.drawClip(clip, x, y, width, height, selected);
@@ -248,14 +249,20 @@ export class Timeline {
     const clickedClip = this.getClipAtPoint(x, y, state);
 
     if (clickedClip) {
+      const selectedIds = Array.isArray(state.selectedClipIds) ? state.selectedClipIds : [];
       const clipX = timeToPixels(clickedClip.start, state.zoom) - this.scrollX;
       const clipWidth = timeToPixels(clickedClip.duration, state.zoom);
+      const isToggle = e.ctrlKey || e.metaKey;
+      const isAdd = e.shiftKey;
 
       // Check if clicking on resize handles
       const isLeftHandle = Math.abs(x - clipX) < 5;
       const isRightHandle = Math.abs(x - (clipX + clipWidth)) < 5;
 
       if (isLeftHandle || isRightHandle) {
+        if (!selectedIds.includes(clickedClip.id) || selectedIds.length > 1) {
+          this.state.dispatch(actions.setSelection([clickedClip.id], clickedClip.id));
+        }
         this.dragState = {
           type: 'resize',
           clip: clickedClip,
@@ -265,22 +272,53 @@ export class Timeline {
           originalDuration: clickedClip.duration,
           originalTrimStart: clickedClip.trimStart,
         };
-      } else {
-        // Start dragging clip
-        this.dragState = {
-          type: 'move',
-          clip: clickedClip,
-          startX: x,
-          originalStart: clickedClip.start,
-          originalTrackId: clickedClip.trackId,
-        };
+        return;
       }
 
-      // Select clip
-      this.state.dispatch(actions.selectClip(clickedClip.id));
+      if (isToggle) {
+        this.state.dispatch(actions.toggleClipSelection(clickedClip.id));
+        return;
+      }
+
+      if (isAdd) {
+        this.state.dispatch(actions.addClipToSelection(clickedClip.id));
+        return;
+      }
+
+      const activeSelection = selectedIds.includes(clickedClip.id)
+        ? selectedIds
+        : [clickedClip.id];
+      if (!selectedIds.includes(clickedClip.id) || selectedIds.length !== 1) {
+        this.state.dispatch(actions.setSelection(activeSelection, clickedClip.id));
+      }
+
+      // Start dragging selected clips
+      const selectedClips = state.clips
+        .filter(clip => activeSelection.includes(clip.id))
+        .map(clip => ({
+          id: clip.id,
+          originalStart: clip.start,
+          originalTrackId: clip.trackId,
+        }));
+      const minStart = selectedClips.reduce(
+        (min, clip) => Math.min(min, clip.originalStart),
+        Infinity
+      );
+
+      this.dragState = {
+        type: 'move',
+        clip: clickedClip,
+        startX: x,
+        originalStart: clickedClip.start,
+        originalTrackId: clickedClip.trackId,
+        selectedClips,
+        minStart,
+      };
     } else {
       // Deselect if clicking on empty space
-      this.state.dispatch(actions.selectClip(null));
+      if (!e.ctrlKey && !e.metaKey && !e.shiftKey) {
+        this.state.dispatch(actions.setSelection([], null));
+      }
     }
   }
 
@@ -309,17 +347,28 @@ export class Timeline {
       this.state.dispatch(actions.setPlayhead(newTime), false);
 
     } else if (this.dragState.type === 'move') {
-      // Move clip
-      const newStart = Math.max(0, this.dragState.originalStart + deltaTime);
-
-      // Check which track we're over
+      // Move selected clips
       const trackIndex = Math.floor((y - RULER_HEIGHT) / TRACK_HEIGHT);
       const newTrackId = Math.max(0, Math.min(state.tracks.length - 1, trackIndex));
+      const deltaTrack = newTrackId - this.dragState.originalTrackId;
 
-      this.state.dispatch(actions.updateClip(this.dragState.clip.id, {
-        start: newStart,
-        trackId: newTrackId,
-      }));
+      let adjustedDeltaTime = deltaTime;
+      if (this.dragState.minStart + adjustedDeltaTime < 0) {
+        adjustedDeltaTime = -this.dragState.minStart;
+      }
+
+      const moves = (this.dragState.selectedClips || []).map(clip => {
+        const start = Math.max(0, clip.originalStart + adjustedDeltaTime);
+        const trackId = Math.max(
+          0,
+          Math.min(state.tracks.length - 1, clip.originalTrackId + deltaTrack)
+        );
+        return { id: clip.id, start, trackId };
+      });
+
+      if (moves.length > 0) {
+        this.state.dispatch(actions.moveClips(moves));
+      }
 
     } else if (this.dragState.type === 'resize') {
       // Resize clip
