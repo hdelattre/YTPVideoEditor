@@ -37,70 +37,6 @@ export const COLORS = {
   rulerLine: '#3a3a3a',
 };
 
-// Export settings
-export const EXPORT_PRESETS = [
-  {
-    id: 'universal-h264',
-    label: 'Universal (H.264)',
-    settings: {
-      resolution: 'auto',
-      fps: 30,
-      videoCodec: 'libx264',
-      videoBitrate: '',
-      crf: 23,
-      preset: 'medium',
-      audioCodec: 'aac',
-      audioBitrate: '192k',
-      sampleRate: 44100,
-    },
-  },
-  {
-    id: 'small-share',
-    label: 'Small Share (720p)',
-    settings: {
-      resolution: { width: 1280, height: 720 },
-      fps: 30,
-      videoCodec: 'libx264',
-      videoBitrate: '',
-      crf: 28,
-      preset: 'veryfast',
-      audioCodec: 'aac',
-      audioBitrate: '96k',
-      sampleRate: 44100,
-    },
-  },
-  {
-    id: 'youtube-1080p',
-    label: 'YouTube 1080p',
-    settings: {
-      resolution: { width: 1920, height: 1080 },
-      fps: 30,
-      videoCodec: 'libx264',
-      videoBitrate: '',
-      crf: 20,
-      preset: 'slow',
-      audioCodec: 'aac',
-      audioBitrate: '192k',
-      sampleRate: 48000,
-    },
-  },
-  {
-    id: 'youtube-4k',
-    label: 'YouTube 4K (H.265)',
-    settings: {
-      resolution: { width: 3840, height: 2160 },
-      fps: 30,
-      videoCodec: 'libx265',
-      videoBitrate: '',
-      crf: 20,
-      preset: 'slow',
-      audioCodec: 'aac',
-      audioBitrate: '256k',
-      sampleRate: 48000,
-    },
-  },
-];
-
 // Keyboard shortcuts
 export const SHORTCUTS = {
   PLAY_PAUSE: 'Space',
@@ -131,22 +67,6 @@ export const DEFAULT_CLIP_COLOR = COLORS.clipDefault;
 export const DEFAULT_CLIP_DURATION = 5000; // ms
 export const DEFAULT_SPEED = 1.0;
 
-// Export defaults
-export const DEFAULT_EXPORT_SETTINGS = {
-  resolution: 'auto',
-  fps: 30,
-  videoCodec: 'libx264',
-  videoBitrate: '',
-  crf: 23,
-  preset: 'medium',
-  audioCodec: 'aac',
-  audioBitrate: '192k',
-  sampleRate: 44100,
-  format: 'mp4',
-  rangeStart: 0,
-  rangeEnd: null,
-};
-
 export const DEFAULT_VIDEO_FILTERS = {
   brightness: 0,
   contrast: 1,
@@ -173,10 +93,6 @@ export const DEFAULT_AUDIO_FILTERS = {
   fadeIn: 0,
   fadeOut: 0,
 };
-
-export function createDefaultExportSettings() {
-  return { ...DEFAULT_EXPORT_SETTINGS };
-}
 
 export function createDefaultFilters() {
   return {

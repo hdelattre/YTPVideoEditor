@@ -16,10 +16,9 @@ import {
   MIN_ZOOM,
   MAX_ZOOM,
   ZOOM_STEP,
-  EXPORT_PRESETS,
-  createDefaultExportSettings,
   createDefaultFilters,
 } from './core/constants.js';
+import { createDefaultExportSettings } from './export/settings.js';
 
 /**
  * Main application class
@@ -408,80 +407,6 @@ class YTPEditor {
       ...defaults,
       ...(state.exportSettings || {}),
     };
-  }
-
-  /**
-   * Find a matching export preset id for current settings
-   * @param {import('./core/types.js').ExportSettings} exportSettings
-   * @returns {string}
-   */
-  getExportPresetMatch(exportSettings) {
-    if (!Array.isArray(EXPORT_PRESETS)) return '';
-    for (const preset of EXPORT_PRESETS) {
-      if (this.exportSettingsMatchPreset(exportSettings, preset.settings)) {
-        return preset.id;
-      }
-    }
-    return '';
-  }
-
-  /**
-   * Check if export settings match a preset
-   * @param {import('./core/types.js').ExportSettings} exportSettings
-   * @param {object} presetSettings
-   * @returns {boolean}
-   */
-  exportSettingsMatchPreset(exportSettings, presetSettings) {
-    const normalizeResolution = (value) => {
-      if (value === 'auto') return 'auto';
-      if (!value || typeof value !== 'object') return null;
-      const width = Number(value.width);
-      const height = Number(value.height);
-      if (!Number.isFinite(width) || !Number.isFinite(height)) return null;
-      return { width, height };
-    };
-
-    const currentResolution = normalizeResolution(exportSettings.resolution);
-    const presetResolution = normalizeResolution(presetSettings.resolution);
-
-    if (!presetResolution) {
-      return false;
-    }
-    if (presetResolution === 'auto') {
-      if (currentResolution !== 'auto') return false;
-    } else {
-      if (!currentResolution || currentResolution === 'auto') return false;
-      if (
-        currentResolution.width !== presetResolution.width ||
-        currentResolution.height !== presetResolution.height
-      ) {
-        return false;
-      }
-    }
-
-    const numberKeys = new Set(['fps', 'crf', 'sampleRate']);
-    const keys = [
-      'fps',
-      'videoCodec',
-      'videoBitrate',
-      'crf',
-      'preset',
-      'audioCodec',
-      'audioBitrate',
-      'sampleRate',
-    ];
-
-    for (const key of keys) {
-      const presetValue = presetSettings[key];
-      const currentValue = exportSettings[key];
-      if (numberKeys.has(key)) {
-        if (Number(presetValue) !== Number(currentValue)) return false;
-      } else if (String(presetValue || '') !== String(currentValue || '')) {
-        return false;
-      }
-    }
-
-    return true;
   }
 
   /**

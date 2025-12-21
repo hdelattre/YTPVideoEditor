@@ -6,9 +6,9 @@
 import {
   MAX_HISTORY_LEVELS,
   DEFAULT_TRACK_COUNT,
-  createDefaultExportSettings,
   createDefaultFilters,
 } from './constants.js';
+import { createDefaultExportSettings } from '../export/settings.js';
 
 /**
  * State Manager with history tracking and pub/sub

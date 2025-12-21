@@ -3,9 +3,10 @@
  */
 
 import * as actions from '../core/actions.js';
-import { EXPORT_PRESETS, createDefaultFilters } from '../core/constants.js';
+import { createDefaultFilters } from '../core/constants.js';
 import { formatSeconds } from '../utils/format.js';
 import { getExportResolution } from '../export/ffmpeg.js';
+import { EXPORT_PRESETS, getExportPresetMatch } from '../export/settings.js';
 import { getClipSourceRange, mapSourceTimeToClipTime } from '../utils/clipTiming.js';
 import { decoratePropertySliders } from './rangeVisuals.js';
 import { parseWhisperTranscript, renderTranscriptResults } from './transcript.js';
@@ -58,7 +59,7 @@ export class PropertiesPanel {
         : null;
       const rangeStartValue = formatSeconds(rangeStartMs);
       const rangeEndValue = rangeEndMs !== null ? formatSeconds(rangeEndMs) : '';
-      const presetMatchId = editor.getExportPresetMatch(exportSettings);
+      const presetMatchId = getExportPresetMatch(exportSettings);
       const presetOptions = Array.isArray(EXPORT_PRESETS)
         ? EXPORT_PRESETS.map((preset) => (
           `<option value="${preset.id}" ${presetMatchId === preset.id ? 'selected' : ''}>${preset.label}</option>`
