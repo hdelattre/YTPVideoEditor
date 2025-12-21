@@ -1382,6 +1382,7 @@ class YTPEditor {
       ? `${mediaTranscript.cues.length} cues${mediaTranscript.sourceName ? ` - ${mediaTranscript.sourceName}` : ''}`
       : 'No transcript loaded';
     const hasTranscript = Boolean(mediaTranscript && Array.isArray(mediaTranscript.cues));
+    const searchDisabled = hasTranscript ? '' : 'disabled';
 
     propertiesContent.innerHTML = `
       <div class="property-group">
@@ -1553,6 +1554,14 @@ class YTPEditor {
         </button>
         <input type="file" id="${idPrefix}-transcript-file" accept=".txt" hidden
                aria-label="Transcript file">
+      </div>
+      <div class="property-group">
+        <label class="property-label" for="${idPrefix}-transcript-search">Search Transcript</label>
+        <input type="text" class="property-input" id="${idPrefix}-transcript-search"
+               placeholder="Search words..." ${searchDisabled}>
+      </div>
+      <div class="property-group">
+        <div class="transcript-results" id="${idPrefix}-transcript-results"></div>
       </div>
 
       <div class="property-group">
@@ -1726,6 +1735,25 @@ class YTPEditor {
         this.renderPropertiesPanel(this.state.getState());
       });
     }
+
+    const transcriptSearchInput = document.getElementById(`${idPrefix}-transcript-search`);
+    const transcriptResults = document.getElementById(`${idPrefix}-transcript-results`);
+    const renderTranscriptResults = () => {
+      this.renderTranscriptResults(clip, mediaTranscript, transcriptSearchInput ? transcriptSearchInput.value : '', transcriptResults);
+    };
+    if (transcriptSearchInput) {
+      transcriptSearchInput.addEventListener('input', renderTranscriptResults);
+    }
+    if (transcriptResults) {
+      transcriptResults.addEventListener('click', (e) => {
+        const button = e.target.closest('.transcript-result');
+        if (!button) return;
+        const time = Number(button.dataset.clipTime);
+        if (!Number.isFinite(time)) return;
+        this.state.dispatch(actions.setPlayhead(time), false);
+      });
+    }
+    renderTranscriptResults();
 
     document.getElementById(`${idPrefix}-delete`).addEventListener('click', () => {
       this.state.dispatch(actions.removeClip(clip.id));
@@ -2724,6 +2752,105 @@ class YTPEditor {
    */
   formatSeconds(ms) {
     return (ms / 1000).toFixed(3).replace(/\.?0+$/, '');
+  }
+
+  /**
+   * Escape text for safe HTML rendering
+   * @param {string} value
+   * @returns {string}
+   */
+  escapeHtml(value) {
+    return String(value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  /**
+   * Get source range for a clip in milliseconds
+   * @param {import('./core/types.js').Clip} clip
+   * @returns {{start: number, end: number, speed: number, sourceLength: number}}
+   */
+  getClipSourceRange(clip) {
+    const speed = clip.speed || 1;
+    const trimStart = clip.trimStart || 0;
+    const sourceLength = clip.duration * speed;
+    return {
+      start: trimStart,
+      end: trimStart + sourceLength,
+      speed,
+      sourceLength,
+    };
+  }
+
+  /**
+   * Map a source time to clip timeline time
+   * @param {import('./core/types.js').Clip} clip
+   * @param {number} sourceMs
+   * @param {{start: number, end: number, speed: number, sourceLength: number}} range
+   * @returns {number}
+   */
+  mapSourceTimeToClipTime(clip, sourceMs, range) {
+    const trimStart = range.start;
+    const speed = range.speed;
+    const sourceLength = range.sourceLength;
+    let offset;
+    if (clip.reversed) {
+      offset = (sourceLength - (sourceMs - trimStart)) / speed;
+    } else {
+      offset = (sourceMs - trimStart) / speed;
+    }
+    const clipStart = clip.start;
+    const clipEnd = clip.start + clip.duration;
+    const time = clipStart + offset;
+    return Math.min(clipEnd, Math.max(clipStart, time));
+  }
+
+  /**
+   * Render transcript search results for a clip
+   * @param {import('./core/types.js').Clip} clip
+   * @param {import('./core/types.js').Transcript|null} transcript
+   * @param {string} query
+   * @param {HTMLElement|null} container
+   */
+  renderTranscriptResults(clip, transcript, query, container) {
+    if (!container) return;
+    if (!transcript || !Array.isArray(transcript.cues) || transcript.cues.length === 0) {
+      container.innerHTML = '<div class="transcript-empty">Load a transcript to search.</div>';
+      return;
+    }
+
+    const search = query ? query.trim().toLowerCase() : '';
+    const range = this.getClipSourceRange(clip);
+    const matches = [];
+
+    transcript.cues.forEach((cue) => {
+      if (!cue || !Number.isFinite(cue.start) || !Number.isFinite(cue.end)) return;
+      if (cue.end <= range.start || cue.start >= range.end) return;
+      if (search && (!cue.text || !cue.text.toLowerCase().includes(search))) return;
+      const clipTime = this.mapSourceTimeToClipTime(clip, cue.start, range);
+      matches.push({ clipTime, text: cue.text || '' });
+    });
+
+    if (matches.length === 0) {
+      container.innerHTML = '<div class="transcript-empty">No matches.</div>';
+      return;
+    }
+
+    const maxResults = 100;
+    const visible = matches.slice(0, maxResults);
+    container.innerHTML = visible.map((item) => (
+      `<button type="button" class="transcript-result" data-clip-time="${item.clipTime}">
+        <span class="transcript-time">${formatTime(item.clipTime)}</span>
+        <span class="transcript-text">${this.escapeHtml(item.text)}</span>
+      </button>`
+    )).join('');
+
+    if (matches.length > maxResults) {
+      container.innerHTML += `<div class="transcript-more">Showing ${maxResults} of ${matches.length} matches.</div>`;
+    }
   }
 
   /**
