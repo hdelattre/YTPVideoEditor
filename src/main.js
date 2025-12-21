@@ -90,7 +90,15 @@ class YTPEditor {
     this.projectModalCloseBtn = document.getElementById('projectModalCloseBtn');
     this.projectNewBtn = document.getElementById('projectNewBtn');
     this.projectLoadBtn = document.getElementById('projectLoadBtn');
+    this.projectImportBtn = document.getElementById('projectImportBtn');
+    this.projectImportInput = document.getElementById('projectImportInput');
     this.projectCancelBtn = document.getElementById('projectCancelBtn');
+    this.saveModal = document.getElementById('saveModal');
+    this.saveModalMessage = document.getElementById('saveModalMessage');
+    this.saveModalCloseBtn = document.getElementById('saveModalCloseBtn');
+    this.saveLocalBtn = document.getElementById('saveLocalBtn');
+    this.saveExportBtn = document.getElementById('saveExportBtn');
+    this.saveCancelBtn = document.getElementById('saveCancelBtn');
     this.reassociateInput = document.createElement('input');
     this.reassociateInput.type = 'file';
     this.reassociateInput.accept = 'video/*,audio/*';
@@ -120,7 +128,7 @@ class YTPEditor {
     document.getElementById('undoBtn').addEventListener('click', () => this.state.undo());
     document.getElementById('redoBtn').addEventListener('click', () => this.state.redo());
     document.getElementById('newProjectBtn').addEventListener('click', () => this.showProjectModal());
-    document.getElementById('saveBtn').addEventListener('click', () => this.saveProject());
+    document.getElementById('saveBtn').addEventListener('click', () => this.showSaveModal());
     document.getElementById('exportBtn').addEventListener('click', () => this.exportVideo());
     document.getElementById('addTrackBtn').addEventListener('click', () => this.addTrack());
 
@@ -160,6 +168,15 @@ class YTPEditor {
       });
     }
 
+    if (this.projectImportBtn) {
+      this.projectImportBtn.addEventListener('click', () => {
+        if (this.projectImportInput) {
+          this.projectImportInput.value = '';
+          this.projectImportInput.click();
+        }
+      });
+    }
+
     if (this.projectCancelBtn) {
       this.projectCancelBtn.addEventListener('click', () => this.hideProjectModal());
     }
@@ -168,6 +185,40 @@ class YTPEditor {
       this.projectModal.addEventListener('click', (e) => {
         if (e.target === this.projectModal) {
           this.hideProjectModal();
+        }
+      });
+    }
+
+    if (this.projectImportInput) {
+      this.projectImportInput.addEventListener('change', (e) => this.handleProjectImport(e));
+    }
+
+    if (this.saveModalCloseBtn) {
+      this.saveModalCloseBtn.addEventListener('click', () => this.hideSaveModal());
+    }
+
+    if (this.saveLocalBtn) {
+      this.saveLocalBtn.addEventListener('click', () => {
+        this.saveProject();
+        this.hideSaveModal();
+      });
+    }
+
+    if (this.saveExportBtn) {
+      this.saveExportBtn.addEventListener('click', () => {
+        this.exportProject();
+        this.hideSaveModal();
+      });
+    }
+
+    if (this.saveCancelBtn) {
+      this.saveCancelBtn.addEventListener('click', () => this.hideSaveModal());
+    }
+
+    if (this.saveModal) {
+      this.saveModal.addEventListener('click', (e) => {
+        if (e.target === this.saveModal) {
+          this.hideSaveModal();
         }
       });
     }
@@ -1812,15 +1863,7 @@ class YTPEditor {
     if (!saved) return;
 
     try {
-      this.state.loadFromJSON(saved);
-      this.clearMediaCaches();
-      this.hideExportCommand();
-      this.pendingReassociateMediaId = null;
-      this.lastPreviewVideoClipId = null;
-      this.lastPreviewAudioClipId = null;
-      this.lastPropertiesClipId = null;
-      this.lastPropertiesSignature = null;
-      this.updateStatus('Project loaded (reimport media files to preview)');
+      this.applyLoadedProject(saved, 'Project loaded (reimport media files to preview)');
     } catch (error) {
       console.error('Failed to load project:', error);
       this.updateStatus('Failed to load project');
@@ -1880,8 +1923,8 @@ class YTPEditor {
     const hasSaved = Boolean(localStorage.getItem('ytp-editor-project'));
     if (this.projectModalMessage) {
       this.projectModalMessage.textContent = hasSaved
-        ? 'Start a new project or load the last saved project.'
-        : 'No saved project found. Start a new project?';
+        ? 'Start a new project, load the last saved project, or import a JSON file.'
+        : 'No saved project found. Start a new project or import a JSON file?';
     }
     if (this.projectLoadBtn) {
       this.projectLoadBtn.disabled = !hasSaved;
@@ -1897,6 +1940,87 @@ class YTPEditor {
     if (this.projectModal) {
       this.projectModal.style.display = 'none';
     }
+  }
+
+  /**
+   * Show save modal
+   */
+  showSaveModal() {
+    if (!this.saveModal) return;
+    if (this.saveModalMessage) {
+      this.saveModalMessage.textContent = 'Save to browser storage or export a JSON backup (media files are not included).';
+    }
+    this.saveModal.style.display = 'flex';
+  }
+
+  /**
+   * Hide save modal
+   */
+  hideSaveModal() {
+    if (this.saveModal) {
+      this.saveModal.style.display = 'none';
+    }
+  }
+
+  /**
+   * Export project JSON to a file
+   */
+  exportProject() {
+    try {
+      const json = this.state.toJSON();
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      link.href = url;
+      link.download = `ytp-project-${timestamp}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      this.updateStatus('Project exported (media files not included)');
+    } catch (error) {
+      console.error('Failed to export project:', error);
+      this.updateStatus('Failed to export project');
+    }
+  }
+
+  /**
+   * Handle project import file selection
+   * @param {Event} e
+   */
+  async handleProjectImport(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+
+    try {
+      const json = await file.text();
+      this.applyLoadedProject(json, 'Project imported (reimport media files to preview)');
+      localStorage.setItem('ytp-editor-project', json);
+      this.hideProjectModal();
+    } catch (error) {
+      console.error('Failed to import project:', error);
+      this.updateStatus('Failed to import project');
+    } finally {
+      e.target.value = '';
+    }
+  }
+
+  /**
+   * Apply loaded project JSON and reset runtime caches
+   * @param {string} json
+   * @param {string} statusMessage
+   */
+  applyLoadedProject(json, statusMessage) {
+    this.state.loadFromJSON(json);
+    this.clearMediaCaches();
+    this.hideExportCommand();
+    this.pendingReassociateMediaId = null;
+    this.lastPreviewVideoClipId = null;
+    this.lastPreviewAudioClipId = null;
+    this.lastPropertiesClipId = null;
+    this.lastPropertiesSignature = null;
+    this.updateStatus(statusMessage);
   }
 
   /**

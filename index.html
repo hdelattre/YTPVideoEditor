@@ -125,7 +125,28 @@
                 <div class="modal-actions">
                     <button id="projectNewBtn" class="btn btn-secondary">New Project</button>
                     <button id="projectLoadBtn" class="btn btn-primary">Load Saved</button>
+                    <button id="projectImportBtn" class="btn btn-secondary">Import JSON</button>
                     <button id="projectCancelBtn" class="btn btn-secondary">Cancel</button>
+                </div>
+                <input type="file" id="projectImportInput" accept="application/json,.json" hidden
+                       aria-label="Project JSON file">
+            </div>
+        </div>
+    </div>
+
+    <!-- Save modal -->
+    <div id="saveModal" class="modal" style="display:none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Save Project</h3>
+                <button class="close-btn" id="saveModalCloseBtn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p id="saveModalMessage" class="modal-message"></p>
+                <div class="modal-actions">
+                    <button id="saveLocalBtn" class="btn btn-primary">Save to Browser</button>
+                    <button id="saveExportBtn" class="btn btn-secondary">Export JSON</button>
+                    <button id="saveCancelBtn" class="btn btn-secondary">Cancel</button>
                 </div>
             </div>
         </div>
