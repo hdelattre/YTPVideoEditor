@@ -435,25 +435,13 @@ export class Timeline {
 
     if (e.ctrlKey || e.metaKey) {
       // Zoom
-      const delta = e.deltaY > 0 ? -ZOOM_STEP : ZOOM_STEP;
+      const zoomStep = ZOOM_STEP * 0.5;
+      const delta = e.deltaY > 0 ? -zoomStep : zoomStep;
       const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, state.zoom + delta));
 
-      // Zoom towards mouse position
-      const rect = this.canvas.getBoundingClientRect();
-      const mouseX = e.clientX - rect.left;
-      const timeAtMouse = pixelsToTime(mouseX + this.scrollX, state.zoom);
-
-      this.zoomAnchor = 'mouse';
+      // Zoom around playhead (consistent with zoom buttons)
+      this.zoomAnchor = 'playhead';
       this.state.dispatch(actions.setZoom(newZoom), false);
-
-      // Adjust scroll to keep time under mouse in same position
-      const newMouseX = timeToPixels(timeAtMouse, newZoom);
-      this.scrollX = newMouseX - mouseX;
-      const maxScroll = Math.max(
-        0,
-        timeToPixels(getTimelineDuration(state.clips), newZoom) - this.renderer.width
-      );
-      this.scrollX = Math.max(0, Math.min(this.scrollX, maxScroll));
 
     } else {
       // Horizontal scroll

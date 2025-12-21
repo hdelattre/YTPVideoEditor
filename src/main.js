@@ -70,6 +70,7 @@ class YTPEditor {
 
     // Create hidden video elements for playback
     this.videoElements = new Map();
+    this.audioElements = new Map();
     this.masterVolume = 1.0;
 
     // Export command UI
@@ -375,6 +376,7 @@ class YTPEditor {
         clip.volume,
         clip.muted,
         clip.reversed,
+        clip.visible !== false,
         clip.color,
       ].join('|');
       return { clip, signature };
@@ -388,6 +390,7 @@ class YTPEditor {
         clip.volume,
         clip.muted,
         clip.reversed,
+        clip.visible !== false,
         clip.color,
       ].join(':'))
       .join('|');
@@ -569,6 +572,7 @@ class YTPEditor {
       const volumeValue = firstClip.volume !== undefined ? firstClip.volume : 1;
       const colorValue = firstClip.color || '#4a9eff';
       const muteMixed = !allSame(clip => Boolean(clip.muted));
+      const visibleMixed = !allSame(clip => clip.visible !== false);
       const reverseMixed = !allSame(clip => Boolean(clip.reversed));
       const speedMixed = !allSame(clip => clip.speed || 1);
       const volumeMixed = !allSame(clip => clip.volume !== undefined ? clip.volume : 1);
@@ -597,6 +601,10 @@ class YTPEditor {
           <label class="property-label" for="multi-muted">Mute Audio ${mixedTag(muteMixed)}</label>
         </div>
         <div class="property-group">
+          <input type="checkbox" class="property-checkbox" id="multi-visible">
+          <label class="property-label" for="multi-visible">Visible ${mixedTag(visibleMixed)}</label>
+        </div>
+        <div class="property-group">
           <input type="checkbox" class="property-checkbox" id="multi-reversed">
           <label class="property-label" for="multi-reversed">Reversed ${mixedTag(reverseMixed)}</label>
         </div>
@@ -612,6 +620,7 @@ class YTPEditor {
       `;
 
       const muteInput = document.getElementById('multi-muted');
+      const visibleInput = document.getElementById('multi-visible');
       const reverseInput = document.getElementById('multi-reversed');
 
       if (muteInput) {
@@ -620,6 +629,15 @@ class YTPEditor {
         muteInput.addEventListener('change', (e) => {
           muteInput.indeterminate = false;
           this.state.dispatch(actions.updateClips(selectedIds, { muted: e.target.checked }));
+        });
+      }
+
+      if (visibleInput) {
+        visibleInput.checked = selectedClips.every(clip => clip.visible !== false);
+        visibleInput.indeterminate = visibleMixed;
+        visibleInput.addEventListener('change', (e) => {
+          visibleInput.indeterminate = false;
+          this.state.dispatch(actions.updateClips(selectedIds, { visible: e.target.checked }));
         });
       }
 
@@ -687,6 +705,11 @@ class YTPEditor {
         <label class="property-label" for="${idPrefix}-muted">Mute Audio</label>
       </div>
       <div class="property-group">
+        <input type="checkbox" class="property-checkbox" id="${idPrefix}-visible"
+               ${clip.visible !== false ? 'checked' : ''}>
+        <label class="property-label" for="${idPrefix}-visible">Visible</label>
+      </div>
+      <div class="property-group">
         <input type="checkbox" class="property-checkbox" id="${idPrefix}-reversed"
                ${clip.reversed ? 'checked' : ''}>
         <label class="property-label" for="${idPrefix}-reversed">Reversed</label>
@@ -721,6 +744,10 @@ class YTPEditor {
 
     document.getElementById(`${idPrefix}-muted`).addEventListener('change', (e) => {
       this.state.dispatch(actions.updateClip(clip.id, { muted: e.target.checked }));
+    });
+
+    document.getElementById(`${idPrefix}-visible`).addEventListener('change', (e) => {
+      this.state.dispatch(actions.updateClip(clip.id, { visible: e.target.checked }));
     });
 
     document.getElementById(`${idPrefix}-reversed`).addEventListener('change', (e) => {
@@ -904,6 +931,19 @@ class YTPEditor {
         video.load();
       });
       this.videoElements.clear();
+    }
+
+    if (this.audioElements) {
+      this.audioElements.forEach(audio => {
+        try {
+          audio.pause();
+        } catch (error) {
+          // Ignore audio pause errors
+        }
+        audio.removeAttribute('src');
+        audio.load();
+      });
+      this.audioElements.clear();
     }
 
     if (this.decodedAudio) {
@@ -1226,13 +1266,16 @@ class YTPEditor {
     const mediaIndexById = new Map();
 
     segments.forEach(segment => {
-      if (!segment.clip) return;
-      const media = mediaById.get(segment.clip.mediaId);
-      if (!media) return;
-      if (!mediaIndexById.has(media.id)) {
-        mediaIndexById.set(media.id, inputList.length);
-        inputList.push(media);
-      }
+      const segmentClips = [segment.videoClip, segment.audioClip];
+      segmentClips.forEach(clip => {
+        if (!clip) return;
+        const media = mediaById.get(clip.mediaId);
+        if (!media) return;
+        if (!mediaIndexById.has(media.id)) {
+          mediaIndexById.set(media.id, inputList.length);
+          inputList.push(media);
+        }
+      });
     });
 
     if (inputList.length === 0) return null;
@@ -1250,29 +1293,22 @@ class YTPEditor {
       const durationMs = segment.end - segment.start;
       if (durationMs <= 0) return;
 
-      if (segment.clip) {
-        const media = mediaById.get(segment.clip.mediaId);
+      const videoClip = segment.videoClip || null;
+      const audioClip = segment.audioClip || null;
+
+      if (videoClip) {
+        const media = mediaById.get(videoClip.mediaId);
         if (!media) return;
 
         const inputIndex = mediaIndexById.get(media.id);
-        const trimOffsetMs = segment.start - segment.clip.start;
-        const sourceStartMs = (segment.clip.trimStart || 0) + trimOffsetMs;
+        const trimOffsetMs = segment.start - videoClip.start;
+        const sourceStartMs = (videoClip.trimStart || 0) + trimOffsetMs;
         const startSec = this.formatSeconds(sourceStartMs);
         const endSec = this.formatSeconds(sourceStartMs + durationMs);
         const mediaInfo = this.mediaInfo ? this.mediaInfo.get(media.id) : null;
         const isAudioOnly = media.type && media.type.startsWith('audio/');
         const hasVideo = mediaInfo ? mediaInfo.hasVideo !== false : !isAudioOnly;
-        let hasAudio = false;
-        if (mediaInfo && mediaInfo.hasAudio !== null && mediaInfo.hasAudio !== undefined) {
-          hasAudio = mediaInfo.hasAudio === true;
-        } else if (isAudioOnly) {
-          hasAudio = true;
-        } else {
-          this.exportAudioWarning = true;
-        }
-
-        const reverseVideo = segment.clip.reversed ? ',reverse' : '';
-        const reverseAudio = segment.clip.reversed ? ',areverse' : '';
+        const reverseVideo = videoClip.reversed ? ',reverse' : '';
 
         if (hasVideo) {
           filterParts.push(
@@ -1286,6 +1322,34 @@ class YTPEditor {
             `format=yuv420p[${vLabel}]`
           );
         }
+      } else {
+        const durationSec = this.formatSeconds(durationMs);
+        filterParts.push(
+          `color=c=black:s=${width}x${height}:r=${fps}:d=${durationSec},` +
+          `format=yuv420p[${vLabel}]`
+        );
+      }
+
+      if (audioClip) {
+        const media = mediaById.get(audioClip.mediaId);
+        if (!media) return;
+
+        const inputIndex = mediaIndexById.get(media.id);
+        const trimOffsetMs = segment.start - audioClip.start;
+        const sourceStartMs = (audioClip.trimStart || 0) + trimOffsetMs;
+        const startSec = this.formatSeconds(sourceStartMs);
+        const endSec = this.formatSeconds(sourceStartMs + durationMs);
+        const mediaInfo = this.mediaInfo ? this.mediaInfo.get(media.id) : null;
+        const isAudioOnly = media.type && media.type.startsWith('audio/');
+        let hasAudio = false;
+        if (mediaInfo && mediaInfo.hasAudio !== null && mediaInfo.hasAudio !== undefined) {
+          hasAudio = mediaInfo.hasAudio === true;
+        } else if (isAudioOnly) {
+          hasAudio = true;
+        } else {
+          this.exportAudioWarning = true;
+        }
+        const reverseAudio = audioClip.reversed ? ',areverse' : '';
 
         if (hasAudio) {
           filterParts.push(
@@ -1300,10 +1364,6 @@ class YTPEditor {
         }
       } else {
         const durationSec = this.formatSeconds(durationMs);
-        filterParts.push(
-          `color=c=black:s=${width}x${height}:r=${fps}:d=${durationSec},` +
-          `format=yuv420p[${vLabel}]`
-        );
         filterParts.push(
           `anullsrc=channel_layout=stereo:sample_rate=44100:d=${durationSec}[${aLabel}]`
         );
@@ -1330,11 +1390,26 @@ class YTPEditor {
   /**
    * Build topmost-visible segments for the timeline
    * @param {import('./core/types.js').EditorState} state
-   * @returns {Array<{clip: import('./core/types.js').Clip|null, start: number, end: number}>}
+   * @returns {Array<{audioClip: import('./core/types.js').Clip|null, videoClip: import('./core/types.js').Clip|null, start: number, end: number}>}
    */
   getTopmostSegments(state) {
     const clips = state.clips;
     if (clips.length === 0) return [];
+
+    const mediaById = new Map(state.mediaLibrary.map(media => [media.id, media]));
+    const hasVideoForClip = (clip) => {
+      const media = mediaById.get(clip.mediaId);
+      if (!media) return false;
+      const mediaInfo = this.mediaInfo ? this.mediaInfo.get(media.id) : null;
+      const isAudioOnly = media.type && media.type.startsWith('audio/');
+      const isVideoType = media.type && media.type.startsWith('video/');
+      if (mediaInfo) {
+        if (mediaInfo.hasVideo === true) return true;
+        if (mediaInfo.hasVideo === false) return false;
+        return mediaInfo.isVideoType || isVideoType || !isAudioOnly;
+      }
+      return isVideoType || !isAudioOnly;
+    };
 
     const boundaries = new Set([0]);
     clips.forEach(clip => {
@@ -1345,6 +1420,16 @@ class YTPEditor {
     const times = Array.from(boundaries).sort((a, b) => a - b);
     const segments = [];
 
+    const getTopmost = (active) => {
+      let topmost = null;
+      for (const clip of active) {
+        if (!topmost || clip.trackId < topmost.trackId) {
+          topmost = clip;
+        }
+      }
+      return topmost;
+    };
+
     for (let i = 0; i < times.length - 1; i++) {
       const start = times[i];
       const end = times[i + 1];
@@ -1354,28 +1439,30 @@ class YTPEditor {
         clip => start >= clip.start && start < clip.start + clip.duration
       );
       if (active.length === 0) {
-        segments.push({ clip: null, start, end });
+        segments.push({ audioClip: null, videoClip: null, start, end });
         continue;
       }
 
-      let topmost = active[0];
-      for (const clip of active) {
-        if (clip.trackId < topmost.trackId) {
-          topmost = clip;
-        }
-      }
+      const audioClip = getTopmost(active);
+      const videoClip = getTopmost(
+        active.filter(clip => clip.visible !== false && hasVideoForClip(clip))
+      );
 
-      segments.push({ clip: topmost, start, end });
+      segments.push({ audioClip, videoClip, start, end });
     }
 
     const merged = [];
     for (const segment of segments) {
       const last = merged[merged.length - 1];
-      const sameClip = last && (
-        (last.clip && segment.clip && last.clip.id === segment.clip.id) ||
-        (!last.clip && !segment.clip)
+      const sameAudio = last && (
+        (last.audioClip && segment.audioClip && last.audioClip.id === segment.audioClip.id) ||
+        (!last.audioClip && !segment.audioClip)
       );
-      if (sameClip) {
+      const sameVideo = last && (
+        (last.videoClip && segment.videoClip && last.videoClip.id === segment.videoClip.id) ||
+        (!last.videoClip && !segment.videoClip)
+      );
+      if (last && sameAudio && sameVideo) {
         last.end = segment.end;
       } else {
         merged.push({ ...segment });
@@ -1495,9 +1582,9 @@ class YTPEditor {
       if (!this.videoElements.has(media.id)) {
         const video = document.createElement('video');
         video.src = URL.createObjectURL(file);
-        video.muted = false; // Enable audio
+        video.muted = true;
         video.preload = 'auto';
-        video.volume = this.masterVolume;
+        video.volume = 0;
         this.videoElements.set(media.id, video);
       }
       const video = this.videoElements.get(media.id);
@@ -1505,12 +1592,27 @@ class YTPEditor {
       return video;
     };
 
-    const activeMediaIds = new Set();
+    const getAudioForMedia = (media) => {
+      const file = this.mediaFiles.get(media.id);
+      if (!this.audioElements.has(media.id)) {
+        const audio = document.createElement('video');
+        audio.src = URL.createObjectURL(file);
+        audio.muted = false;
+        audio.preload = 'auto';
+        audio.volume = this.masterVolume;
+        this.audioElements.set(media.id, audio);
+      }
+      return this.audioElements.get(media.id);
+    };
+
+    const activeVideoMediaIds = new Set();
+    const activeAudioMediaIds = new Set();
     const shouldResync = this.hasExternalSeek === true;
     let didDrawFrame = false;
 
     const topmostAudioClip = getTopmostClip(activeClips);
     const videoCandidates = activeClips.filter((clip) => {
+      if (clip.visible === false) return false;
       const media = getMediaForClip(clip);
       if (!media) return false;
       const mediaInfo = this.mediaInfo.get(media.id);
@@ -1529,9 +1631,9 @@ class YTPEditor {
     const videoClipMedia = topmostVideoClip ? getLoadedMediaForClip(topmostVideoClip) : null;
 
     if (topmostAudioClip && audioClipMedia) {
-      const video = getVideoForMedia(audioClipMedia);
+      const audio = getAudioForMedia(audioClipMedia);
       const audioFile = this.mediaFiles.get(audioClipMedia.id);
-      activeMediaIds.add(audioClipMedia.id);
+      activeAudioMediaIds.add(audioClipMedia.id);
 
       const clipTime = getClipTime(topmostAudioClip);
       const clipVolume = topmostAudioClip.volume !== undefined ? topmostAudioClip.volume : 1.0;
@@ -1539,20 +1641,20 @@ class YTPEditor {
       const isReversed = topmostAudioClip.reversed === true;
       const targetVolume = isMuted ? 0 : (clipVolume * this.masterVolume);
       const clipChanged = this.lastPreviewAudioClipId !== topmostAudioClip.id;
-      const shouldSeek = shouldResync || clipChanged || video.paused;
+      const shouldSeek = shouldResync || clipChanged || audio.paused;
 
-      video.volume = targetVolume;
-      video.muted = targetVolume === 0 || isReversed;
+      audio.volume = targetVolume;
+      audio.muted = targetVolume === 0 || isReversed;
 
       if (state.isPlaying) {
         if (isReversed) {
-          if (!video.paused) {
-            video.pause();
+          if (!audio.paused) {
+            audio.pause();
           }
-          const timeDiff = Math.abs(video.currentTime - clipTime);
+          const timeDiff = Math.abs(audio.currentTime - clipTime);
           const allowSeek = shouldSeek || (now - this.lastReverseSeekTime > 30 && timeDiff > 0.03);
           if (allowSeek) {
-            video.currentTime = clipTime;
+            audio.currentTime = clipTime;
             this.lastReverseSeekTime = now;
           }
           this.syncReverseAudio(
@@ -1566,22 +1668,22 @@ class YTPEditor {
         } else {
           this.stopReverseAudio();
           if (shouldSeek) {
-            video.currentTime = clipTime;
+            audio.currentTime = clipTime;
           }
-          if (video.paused) {
-            video.play().catch(() => {}); // Ignore autoplay errors
+          if (audio.paused) {
+            audio.play().catch(() => {}); // Ignore autoplay errors
           }
         }
       } else {
         this.stopReverseAudio();
-        if (!video.paused) {
-          video.pause();
+        if (!audio.paused) {
+          audio.pause();
         }
-        const timeDiff = Math.abs(video.currentTime - clipTime);
+        const timeDiff = Math.abs(audio.currentTime - clipTime);
         if (timeDiff > 0.05) {
           const now = Date.now();
           if (!this.lastSeekTime || now - this.lastSeekTime > 50) {
-            video.currentTime = clipTime;
+            audio.currentTime = clipTime;
             this.lastSeekTime = now;
           }
         }
@@ -1595,17 +1697,15 @@ class YTPEditor {
 
     if (topmostVideoClip && videoClipMedia) {
       const video = getVideoForMedia(videoClipMedia);
-      activeMediaIds.add(videoClipMedia.id);
+      activeVideoMediaIds.add(videoClipMedia.id);
 
       const clipTime = getClipTime(topmostVideoClip);
       const isReversed = topmostVideoClip.reversed === true;
       const clipChanged = this.lastPreviewVideoClipId !== topmostVideoClip.id;
       const shouldSeek = shouldResync || clipChanged || video.paused;
 
-      if (!audioClipMedia || audioClipMedia.id !== videoClipMedia.id) {
-        video.volume = 0;
-        video.muted = true;
-      }
+      video.volume = 0;
+      video.muted = true;
 
       if (state.isPlaying) {
         if (isReversed) {
@@ -1694,8 +1794,16 @@ class YTPEditor {
     // Pause any media that is not active to respect clip bounds
     if (this.videoElements) {
       this.videoElements.forEach((video, mediaId) => {
-        if (!activeMediaIds.has(mediaId) && !video.paused) {
+        if (!activeVideoMediaIds.has(mediaId) && !video.paused) {
           video.pause();
+        }
+      });
+    }
+
+    if (this.audioElements) {
+      this.audioElements.forEach((audio, mediaId) => {
+        if (!activeAudioMediaIds.has(mediaId) && !audio.paused) {
+          audio.pause();
         }
       });
     }

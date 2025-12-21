@@ -20,6 +20,7 @@
  * @property {number} [speed] - Playback speed multiplier (default 1.0)
  * @property {number} [volume] - Audio volume (0.0 to 1.0, default 1.0)
  * @property {boolean} [muted] - Is audio muted (default false)
+ * @property {boolean} [visible] - Show video for this clip (default true)
  */
 
 /**

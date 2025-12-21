@@ -28,6 +28,9 @@ export function addClip(clip) {
       speed: clip.speed || DEFAULT_SPEED,
       volume: clip.volume !== undefined ? clip.volume : 1,
       muted: Boolean(clip.muted),
+      visible: clip.visible !== undefined
+        ? Boolean(clip.visible)
+        : (clip.videoMuted !== undefined ? !clip.videoMuted : true),
     });
     return state;
   };

@@ -225,6 +225,13 @@ export class StateManager {
           ? [loadedState.selectedClipId]
           : [];
       }
+      if (Array.isArray(loadedState.clips)) {
+        loadedState.clips.forEach(clip => {
+          if (clip && clip.visible === undefined && clip.videoMuted !== undefined) {
+            clip.visible = !clip.videoMuted;
+          }
+        });
+      }
       this.state = loadedState;
       this.history = [];
       this.future = [];
