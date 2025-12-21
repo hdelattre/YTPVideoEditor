@@ -62,6 +62,32 @@
   margin-bottom: var(--spacing-lg);
 }
 
+.property-section-title {
+  font-size: 12px;
+  font-weight: 700;
+  margin: var(--spacing-lg) 0 var(--spacing-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--color-text-muted);
+}
+
+.property-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  margin-top: var(--spacing-xs);
+}
+
+.property-row .property-input {
+  width: auto;
+  flex: 1;
+}
+
+.property-row-separator {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
 .multi-select-label {
   font-size: 12px;
   color: var(--color-text-muted);
@@ -85,6 +111,13 @@
   font-size: 10px;
   font-weight: 600;
   color: var(--color-warning);
+}
+
+.property-default {
+  margin-left: var(--spacing-xs);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--color-text-muted);
 }
 
 .property-input {

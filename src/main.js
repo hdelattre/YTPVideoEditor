@@ -8,7 +8,13 @@ import { KeyboardManager } from './utils/keyboard.js';
 import { Timeline } from './ui/Timeline.js';
 import * as actions from './core/actions.js';
 import { formatTime } from './utils/time.js';
-import { MIN_ZOOM, MAX_ZOOM, ZOOM_STEP } from './core/constants.js';
+import {
+  MIN_ZOOM,
+  MAX_ZOOM,
+  ZOOM_STEP,
+  createDefaultExportSettings,
+  createDefaultFilters,
+} from './core/constants.js';
 
 /**
  * Main application class
@@ -354,12 +360,18 @@ class YTPEditor {
    * @returns {{clip: import('./core/types.js').Clip|null, signature: string|null}}
    */
   getSelectedClipSignature(state) {
+    const defaultFilters = this.getDefaultFilters(state);
     const selectedIds = Array.isArray(state.selectedClipIds) && state.selectedClipIds.length > 0
       ? state.selectedClipIds
       : (state.selectedClipId ? [state.selectedClipId] : []);
 
     if (selectedIds.length === 0) {
-      return { clip: null, signature: null };
+      const exportSettings = this.getExportSettings(state);
+      const signature = [
+        JSON.stringify(exportSettings),
+        JSON.stringify(defaultFilters),
+      ].join('|');
+      return { clip: null, signature };
     }
 
     const selectedClips = state.clips.filter(c => selectedIds.includes(c.id));
@@ -378,6 +390,9 @@ class YTPEditor {
         clip.reversed,
         clip.visible !== false,
         clip.color,
+        JSON.stringify(clip.videoFilters || {}),
+        JSON.stringify(clip.audioFilters || {}),
+        JSON.stringify(defaultFilters),
       ].join('|');
       return { clip, signature };
     }
@@ -392,10 +407,82 @@ class YTPEditor {
         clip.reversed,
         clip.visible !== false,
         clip.color,
+        JSON.stringify(clip.videoFilters || {}),
+        JSON.stringify(clip.audioFilters || {}),
+        JSON.stringify(defaultFilters),
       ].join(':'))
       .join('|');
 
     return { clip: null, signature };
+  }
+
+  /**
+   * Get export settings with defaults
+   * @param {import('./core/types.js').EditorState} state
+   * @returns {import('./core/types.js').ExportSettings}
+   */
+  getExportSettings(state) {
+    const defaults = createDefaultExportSettings();
+    return {
+      ...defaults,
+      ...(state.exportSettings || {}),
+    };
+  }
+
+  /**
+   * Get global default filters with defaults applied
+   * @param {import('./core/types.js').EditorState} state
+   * @returns {import('./core/types.js').DefaultFilters}
+   */
+  getDefaultFilters(state) {
+    const defaults = createDefaultFilters();
+    const current = state.defaultFilters || {};
+    return {
+      video: { ...defaults.video, ...(current.video || {}) },
+      audio: { ...defaults.audio, ...(current.audio || {}) },
+    };
+  }
+
+  /**
+   * Resolve per-clip video filters against defaults
+   * @param {import('./core/types.js').Clip} clip
+   * @param {import('./core/types.js').DefaultFilters} defaults
+   * @returns {import('./core/types.js').ClipVideoFilters}
+   */
+  resolveVideoFilters(clip, defaults) {
+    return {
+      ...defaults.video,
+      ...(clip.videoFilters || {}),
+    };
+  }
+
+  /**
+   * Resolve per-clip audio filters against defaults
+   * @param {import('./core/types.js').Clip} clip
+   * @param {import('./core/types.js').DefaultFilters} defaults
+   * @returns {import('./core/types.js').ClipAudioFilters}
+   */
+  resolveAudioFilters(clip, defaults) {
+    return {
+      ...defaults.audio,
+      ...(clip.audioFilters || {}),
+    };
+  }
+
+  /**
+   * Resolve clip volume using defaults
+   * @param {import('./core/types.js').Clip} clip
+   * @param {import('./core/types.js').DefaultFilters} defaults
+   * @returns {number}
+   */
+  resolveClipVolume(clip, defaults) {
+    if (clip.volume !== undefined) {
+      return clip.volume;
+    }
+    if (clip.audioFilters && clip.audioFilters.volume !== undefined) {
+      return clip.audioFilters.volume;
+    }
+    return defaults.audio.volume !== undefined ? defaults.audio.volume : 1;
   }
 
   /**
@@ -552,8 +639,344 @@ class YTPEditor {
       ? state.selectedClipIds
       : (state.selectedClipId ? [state.selectedClipId] : []);
 
+    const defaultFilters = this.getDefaultFilters(state);
+    const exportSettings = this.getExportSettings(state);
+
     if (selectedIds.length === 0) {
-      propertiesContent.innerHTML = '<p class="empty-message">Select a clip to edit properties</p>';
+      const resolutionIsAuto = exportSettings.resolution === 'auto';
+      const resolvedResolution = resolutionIsAuto
+        ? this.getExportResolution(state)
+        : exportSettings.resolution;
+      const widthValue = resolvedResolution && resolvedResolution.width ? resolvedResolution.width : 1280;
+      const heightValue = resolvedResolution && resolvedResolution.height ? resolvedResolution.height : 720;
+
+      propertiesContent.innerHTML = `
+        <h3 class="property-section-title">Project Settings</h3>
+        <div class="property-group">
+          <label class="property-label" for="project-resolution-mode">Resolution</label>
+          <select class="property-input" id="project-resolution-mode">
+            <option value="auto" ${resolutionIsAuto ? 'selected' : ''}>Auto (max clip)</option>
+            <option value="custom" ${resolutionIsAuto ? '' : 'selected'}>Custom</option>
+          </select>
+          <div class="property-row">
+            <input type="number" class="property-input" id="project-resolution-width"
+                   aria-label="Resolution width"
+                   min="320" value="${widthValue}">
+            <span class="property-row-separator">x</span>
+            <input type="number" class="property-input" id="project-resolution-height"
+                   aria-label="Resolution height"
+                   min="240" value="${heightValue}">
+          </div>
+        </div>
+        <div class="property-group">
+          <label class="property-label" for="project-fps">FPS</label>
+          <input type="number" class="property-input" id="project-fps" min="1" max="120"
+                 value="${exportSettings.fps}">
+        </div>
+        <div class="property-group">
+          <label class="property-label" for="project-video-codec">Video Codec</label>
+          <select class="property-input" id="project-video-codec">
+            <option value="libx264" ${exportSettings.videoCodec === 'libx264' ? 'selected' : ''}>H.264 (libx264)</option>
+            <option value="libx265" ${exportSettings.videoCodec === 'libx265' ? 'selected' : ''}>H.265 (libx265)</option>
+            <option value="libvpx-vp9" ${exportSettings.videoCodec === 'libvpx-vp9' ? 'selected' : ''}>VP9 (libvpx-vp9)</option>
+          </select>
+        </div>
+        <div class="property-group">
+          <label class="property-label" for="project-video-bitrate">Video Bitrate (optional)</label>
+          <input type="text" class="property-input" id="project-video-bitrate"
+                 placeholder="e.g. 5M" value="${exportSettings.videoBitrate || ''}">
+        </div>
+        <div class="property-group">
+          <label class="property-label" for="project-crf">CRF (x264/x265)</label>
+          <input type="number" class="property-input" id="project-crf" min="0" max="51"
+                 value="${exportSettings.crf}">
+        </div>
+        <div class="property-group">
+          <label class="property-label" for="project-preset">Preset</label>
+          <select class="property-input" id="project-preset">
+            <option value="ultrafast" ${exportSettings.preset === 'ultrafast' ? 'selected' : ''}>ultrafast</option>
+            <option value="fast" ${exportSettings.preset === 'fast' ? 'selected' : ''}>fast</option>
+            <option value="medium" ${exportSettings.preset === 'medium' ? 'selected' : ''}>medium</option>
+            <option value="slow" ${exportSettings.preset === 'slow' ? 'selected' : ''}>slow</option>
+            <option value="veryslow" ${exportSettings.preset === 'veryslow' ? 'selected' : ''}>veryslow</option>
+          </select>
+        </div>
+        <div class="property-group">
+          <label class="property-label" for="project-audio-codec">Audio Codec</label>
+          <select class="property-input" id="project-audio-codec">
+            <option value="aac" ${exportSettings.audioCodec === 'aac' ? 'selected' : ''}>AAC</option>
+            <option value="libopus" ${exportSettings.audioCodec === 'libopus' ? 'selected' : ''}>Opus</option>
+            <option value="libmp3lame" ${exportSettings.audioCodec === 'libmp3lame' ? 'selected' : ''}>MP3</option>
+            <option value="flac" ${exportSettings.audioCodec === 'flac' ? 'selected' : ''}>FLAC</option>
+          </select>
+        </div>
+        <div class="property-group">
+          <label class="property-label" for="project-audio-bitrate">Audio Bitrate</label>
+          <input type="text" class="property-input" id="project-audio-bitrate"
+                 value="${exportSettings.audioBitrate}">
+        </div>
+        <div class="property-group">
+          <label class="property-label" for="project-sample-rate">Sample Rate</label>
+          <input type="number" class="property-input" id="project-sample-rate" min="8000" max="192000"
+                 value="${exportSettings.sampleRate}">
+        </div>
+        <div class="property-group">
+          <label class="property-label" for="project-format">Container</label>
+          <select class="property-input" id="project-format">
+            <option value="mp4" ${exportSettings.format === 'mp4' ? 'selected' : ''}>MP4</option>
+            <option value="mkv" ${exportSettings.format === 'mkv' ? 'selected' : ''}>MKV</option>
+            <option value="webm" ${exportSettings.format === 'webm' ? 'selected' : ''}>WebM</option>
+            <option value="mov" ${exportSettings.format === 'mov' ? 'selected' : ''}>MOV</option>
+          </select>
+        </div>
+
+        <h3 class="property-section-title">Default Video Filters</h3>
+        <div class="property-group">
+          <label class="property-label" for="project-video-brightness">Brightness</label>
+          <input type="range" class="property-slider" id="project-video-brightness"
+                 min="-1" max="1" step="0.05" value="${defaultFilters.video.brightness}">
+        </div>
+        <div class="property-group">
+          <label class="property-label" for="project-video-contrast">Contrast</label>
+          <input type="range" class="property-slider" id="project-video-contrast"
+                 min="0" max="4" step="0.05" value="${defaultFilters.video.contrast}">
+        </div>
+        <div class="property-group">
+          <label class="property-label" for="project-video-saturation">Saturation</label>
+          <input type="range" class="property-slider" id="project-video-saturation"
+                 min="0" max="3" step="0.05" value="${defaultFilters.video.saturation}">
+        </div>
+        <div class="property-group">
+          <label class="property-label" for="project-video-hue">Hue</label>
+          <input type="range" class="property-slider" id="project-video-hue"
+                 min="-180" max="180" step="1" value="${defaultFilters.video.hue}">
+        </div>
+        <div class="property-group">
+          <label class="property-label" for="project-video-gamma">Gamma</label>
+          <input type="range" class="property-slider" id="project-video-gamma"
+                 min="0.1" max="10" step="0.1" value="${defaultFilters.video.gamma}">
+        </div>
+        <div class="property-group">
+          <label class="property-label" for="project-video-rotate">Rotate</label>
+          <select class="property-input" id="project-video-rotate">
+            <option value="0" ${defaultFilters.video.rotate === 0 ? 'selected' : ''}>0°</option>
+            <option value="90" ${defaultFilters.video.rotate === 90 ? 'selected' : ''}>90°</option>
+            <option value="180" ${defaultFilters.video.rotate === 180 ? 'selected' : ''}>180°</option>
+            <option value="270" ${defaultFilters.video.rotate === 270 ? 'selected' : ''}>270°</option>
+          </select>
+        </div>
+        <div class="property-group">
+          <input type="checkbox" class="property-checkbox" id="project-video-flip-h"
+                 ${defaultFilters.video.flipH ? 'checked' : ''}>
+          <label class="property-label" for="project-video-flip-h">Flip Horizontal</label>
+        </div>
+        <div class="property-group">
+          <input type="checkbox" class="property-checkbox" id="project-video-flip-v"
+                 ${defaultFilters.video.flipV ? 'checked' : ''}>
+          <label class="property-label" for="project-video-flip-v">Flip Vertical</label>
+        </div>
+        <div class="property-group">
+          <label class="property-label" for="project-video-blur">Blur</label>
+          <input type="range" class="property-slider" id="project-video-blur"
+                 min="0" max="10" step="0.5" value="${defaultFilters.video.blur}">
+        </div>
+        <div class="property-group">
+          <label class="property-label" for="project-video-sharpen">Sharpen</label>
+          <input type="range" class="property-slider" id="project-video-sharpen"
+                 min="0" max="10" step="0.5" value="${defaultFilters.video.sharpen}">
+        </div>
+        <div class="property-group">
+          <label class="property-label" for="project-video-denoise">Denoise</label>
+          <input type="range" class="property-slider" id="project-video-denoise"
+                 min="0" max="10" step="0.5" value="${defaultFilters.video.denoise}">
+        </div>
+        <div class="property-group">
+          <label class="property-label" for="project-video-fade-in">Fade In (s)</label>
+          <input type="number" class="property-input" id="project-video-fade-in"
+                 min="0" step="0.1" value="${defaultFilters.video.fadeIn}">
+        </div>
+        <div class="property-group">
+          <label class="property-label" for="project-video-fade-out">Fade Out (s)</label>
+          <input type="number" class="property-input" id="project-video-fade-out"
+                 min="0" step="0.1" value="${defaultFilters.video.fadeOut}">
+        </div>
+
+        <h3 class="property-section-title">Default Audio Filters</h3>
+        <div class="property-group">
+          <label class="property-label" for="project-audio-volume">Volume</label>
+          <input type="range" class="property-slider" id="project-audio-volume"
+                 min="0" max="2" step="0.01" value="${defaultFilters.audio.volume}">
+        </div>
+        <div class="property-group">
+          <label class="property-label" for="project-audio-bass">Bass (dB)</label>
+          <input type="range" class="property-slider" id="project-audio-bass"
+                 min="-20" max="20" step="1" value="${defaultFilters.audio.bass}">
+        </div>
+        <div class="property-group">
+          <label class="property-label" for="project-audio-treble">Treble (dB)</label>
+          <input type="range" class="property-slider" id="project-audio-treble"
+                 min="-20" max="20" step="1" value="${defaultFilters.audio.treble}">
+        </div>
+        <div class="property-group">
+          <input type="checkbox" class="property-checkbox" id="project-audio-normalize"
+                 ${defaultFilters.audio.normalize ? 'checked' : ''}>
+          <label class="property-label" for="project-audio-normalize">Normalize</label>
+        </div>
+        <div class="property-group">
+          <label class="property-label" for="project-audio-pan">Pan</label>
+          <input type="range" class="property-slider" id="project-audio-pan"
+                 min="-1" max="1" step="0.05" value="${defaultFilters.audio.pan}">
+        </div>
+        <div class="property-group">
+          <label class="property-label" for="project-audio-pitch">Pitch (semitones)</label>
+          <input type="range" class="property-slider" id="project-audio-pitch"
+                 min="-12" max="12" step="1" value="${defaultFilters.audio.pitch}">
+        </div>
+        <div class="property-group">
+          <label class="property-label" for="project-audio-fade-in">Fade In (s)</label>
+          <input type="number" class="property-input" id="project-audio-fade-in"
+                 min="0" step="0.1" value="${defaultFilters.audio.fadeIn}">
+        </div>
+        <div class="property-group">
+          <label class="property-label" for="project-audio-fade-out">Fade Out (s)</label>
+          <input type="number" class="property-input" id="project-audio-fade-out"
+                 min="0" step="0.1" value="${defaultFilters.audio.fadeOut}">
+        </div>
+      `;
+
+      const resolutionMode = document.getElementById('project-resolution-mode');
+      const resolutionWidth = document.getElementById('project-resolution-width');
+      const resolutionHeight = document.getElementById('project-resolution-height');
+      const toggleResolutionInputs = () => {
+        const isAuto = resolutionMode.value === 'auto';
+        resolutionWidth.disabled = isAuto;
+        resolutionHeight.disabled = isAuto;
+      };
+      toggleResolutionInputs();
+
+      resolutionMode.addEventListener('change', () => {
+        const isAuto = resolutionMode.value === 'auto';
+        if (isAuto) {
+          this.state.dispatch(actions.updateExportSettings({ resolution: 'auto' }));
+        } else {
+          const width = parseInt(resolutionWidth.value, 10) || widthValue;
+          const height = parseInt(resolutionHeight.value, 10) || heightValue;
+          this.state.dispatch(actions.updateExportSettings({ resolution: { width, height } }));
+        }
+        toggleResolutionInputs();
+      });
+
+      const updateResolution = () => {
+        if (resolutionMode.value === 'auto') return;
+        const width = parseInt(resolutionWidth.value, 10) || widthValue;
+        const height = parseInt(resolutionHeight.value, 10) || heightValue;
+        this.state.dispatch(actions.updateExportSettings({ resolution: { width, height } }));
+      };
+
+      resolutionWidth.addEventListener('input', updateResolution);
+      resolutionHeight.addEventListener('input', updateResolution);
+
+      const exportBindings = [
+        ['project-fps', value => ({ fps: value })],
+        ['project-video-codec', value => ({ videoCodec: value })],
+        ['project-video-bitrate', value => ({ videoBitrate: value })],
+        ['project-crf', value => ({ crf: value })],
+        ['project-preset', value => ({ preset: value })],
+        ['project-audio-codec', value => ({ audioCodec: value })],
+        ['project-audio-bitrate', value => ({ audioBitrate: value })],
+        ['project-sample-rate', value => ({ sampleRate: value })],
+        ['project-format', value => ({ format: value })],
+      ];
+
+      exportBindings.forEach(([id, buildUpdate]) => {
+        const input = document.getElementById(id);
+        if (!input) return;
+        const handler = (e) => {
+          const value = e.target.type === 'number'
+            ? parseFloat(e.target.value)
+            : e.target.value;
+          if (e.target.type === 'number' && Number.isNaN(value)) {
+            return;
+          }
+          this.state.dispatch(actions.updateExportSettings(buildUpdate(value)));
+        };
+        if (input.tagName === 'SELECT') {
+          input.addEventListener('change', handler);
+        } else {
+          input.addEventListener('input', handler);
+        }
+      });
+
+      const defaultVideoBindings = [
+        ['project-video-brightness', 'brightness'],
+        ['project-video-contrast', 'contrast'],
+        ['project-video-saturation', 'saturation'],
+        ['project-video-hue', 'hue'],
+        ['project-video-gamma', 'gamma'],
+        ['project-video-rotate', 'rotate'],
+        ['project-video-blur', 'blur'],
+        ['project-video-sharpen', 'sharpen'],
+        ['project-video-denoise', 'denoise'],
+        ['project-video-fade-in', 'fadeIn'],
+        ['project-video-fade-out', 'fadeOut'],
+      ];
+
+      defaultVideoBindings.forEach(([id, key]) => {
+        const input = document.getElementById(id);
+        if (!input) return;
+        const handler = (e) => {
+          const value = parseFloat(e.target.value);
+          if (Number.isNaN(value)) return;
+          this.state.dispatch(actions.updateDefaultFilters('video', { [key]: value }));
+        };
+        if (input.tagName === 'SELECT') {
+          input.addEventListener('change', handler);
+        } else {
+          input.addEventListener('input', handler);
+        }
+      });
+
+      const flipHInput = document.getElementById('project-video-flip-h');
+      if (flipHInput) {
+        flipHInput.addEventListener('change', (e) => {
+          this.state.dispatch(actions.updateDefaultFilters('video', { flipH: e.target.checked }));
+        });
+      }
+
+      const flipVInput = document.getElementById('project-video-flip-v');
+      if (flipVInput) {
+        flipVInput.addEventListener('change', (e) => {
+          this.state.dispatch(actions.updateDefaultFilters('video', { flipV: e.target.checked }));
+        });
+      }
+
+      const defaultAudioBindings = [
+        ['project-audio-volume', 'volume'],
+        ['project-audio-bass', 'bass'],
+        ['project-audio-treble', 'treble'],
+        ['project-audio-pan', 'pan'],
+        ['project-audio-pitch', 'pitch'],
+        ['project-audio-fade-in', 'fadeIn'],
+        ['project-audio-fade-out', 'fadeOut'],
+      ];
+
+      defaultAudioBindings.forEach(([id, key]) => {
+        const input = document.getElementById(id);
+        if (!input) return;
+        input.addEventListener('input', (e) => {
+          const value = parseFloat(e.target.value);
+          if (Number.isNaN(value)) return;
+          this.state.dispatch(actions.updateDefaultFilters('audio', { [key]: value }));
+        });
+      });
+
+      const normalizeInput = document.getElementById('project-audio-normalize');
+      if (normalizeInput) {
+        normalizeInput.addEventListener('change', (e) => {
+          this.state.dispatch(actions.updateDefaultFilters('audio', { normalize: e.target.checked }));
+        });
+      }
+
       return;
     }
 
@@ -569,13 +992,13 @@ class YTPEditor {
       const allSame = (getValue) => selectedClips.every(clip => getValue(clip) === getValue(firstClip));
 
       const speedValue = firstClip.speed || 1;
-      const volumeValue = firstClip.volume !== undefined ? firstClip.volume : 1;
+      const volumeValue = this.resolveClipVolume(firstClip, defaultFilters);
       const colorValue = firstClip.color || '#4a9eff';
       const muteMixed = !allSame(clip => Boolean(clip.muted));
       const visibleMixed = !allSame(clip => clip.visible !== false);
       const reverseMixed = !allSame(clip => Boolean(clip.reversed));
       const speedMixed = !allSame(clip => clip.speed || 1);
-      const volumeMixed = !allSame(clip => clip.volume !== undefined ? clip.volume : 1);
+      const volumeMixed = !allSame(clip => this.resolveClipVolume(clip, defaultFilters));
       const colorMixed = !allSame(clip => clip.color || '#4a9eff');
 
       propertiesContent.innerHTML = `
@@ -591,7 +1014,7 @@ class YTPEditor {
         <div class="property-group">
           <label class="property-label" for="multi-volume">Volume ${mixedTag(volumeMixed)}</label>
           <input type="range" class="property-slider" id="multi-volume"
-                 min="0" max="1" step="0.01" value="${volumeValue}">
+                 min="0" max="2" step="0.01" value="${volumeValue}">
           <div style="text-align: center; font-size: 12px; margin-top: 4px;">
             <span id="multi-volume-value">${Math.round(volumeValue * 100)}%</span>
           </div>
@@ -677,6 +1100,12 @@ class YTPEditor {
     if (!clip) return;
 
     const idPrefix = `clip-${clip.id}`;
+    const videoOverrides = clip.videoFilters || {};
+    const audioOverrides = clip.audioFilters || {};
+    const resolvedVideoFilters = this.resolveVideoFilters(clip, defaultFilters);
+    const resolvedAudioFilters = this.resolveAudioFilters(clip, defaultFilters);
+    const clipVolume = this.resolveClipVolume(clip, defaultFilters);
+    const defaultTag = (hasOverride) => hasOverride ? '' : '<span class="property-default">Default</span>';
 
     propertiesContent.innerHTML = `
       <div class="property-group">
@@ -692,11 +1121,11 @@ class YTPEditor {
         </div>
       </div>
       <div class="property-group">
-        <label class="property-label" for="${idPrefix}-volume">Volume</label>
+        <label class="property-label" for="${idPrefix}-volume">Volume ${defaultTag(clip.volume !== undefined)}</label>
         <input type="range" class="property-slider" id="${idPrefix}-volume"
-               min="0" max="1" step="0.01" value="${clip.volume !== undefined ? clip.volume : 1}">
+               min="0" max="2" step="0.01" value="${clipVolume}">
         <div style="text-align: center; font-size: 12px; margin-top: 4px;">
-          <span id="${idPrefix}-volume-value">${Math.round((clip.volume !== undefined ? clip.volume : 1) * 100)}%</span>
+          <span id="${idPrefix}-volume-value">${Math.round(clipVolume * 100)}%</span>
         </div>
       </div>
       <div class="property-group">
@@ -718,6 +1147,125 @@ class YTPEditor {
         <label class="property-label" for="${idPrefix}-color">Color</label>
         <input type="color" class="color-picker" id="${idPrefix}-color" value="${clip.color || '#4a9eff'}">
       </div>
+
+      <h3 class="property-section-title">Video Filters</h3>
+      <div class="property-group">
+        <label class="property-label" for="${idPrefix}-brightness">Brightness ${defaultTag(videoOverrides.brightness !== undefined)}</label>
+        <input type="range" class="property-slider" id="${idPrefix}-brightness"
+               min="-1" max="1" step="0.05" value="${resolvedVideoFilters.brightness}">
+      </div>
+      <div class="property-group">
+        <label class="property-label" for="${idPrefix}-contrast">Contrast ${defaultTag(videoOverrides.contrast !== undefined)}</label>
+        <input type="range" class="property-slider" id="${idPrefix}-contrast"
+               min="0" max="4" step="0.05" value="${resolvedVideoFilters.contrast}">
+      </div>
+      <div class="property-group">
+        <label class="property-label" for="${idPrefix}-saturation">Saturation ${defaultTag(videoOverrides.saturation !== undefined)}</label>
+        <input type="range" class="property-slider" id="${idPrefix}-saturation"
+               min="0" max="3" step="0.05" value="${resolvedVideoFilters.saturation}">
+      </div>
+      <div class="property-group">
+        <label class="property-label" for="${idPrefix}-hue">Hue ${defaultTag(videoOverrides.hue !== undefined)}</label>
+        <input type="range" class="property-slider" id="${idPrefix}-hue"
+               min="-180" max="180" step="1" value="${resolvedVideoFilters.hue}">
+      </div>
+      <div class="property-group">
+        <label class="property-label" for="${idPrefix}-gamma">Gamma ${defaultTag(videoOverrides.gamma !== undefined)}</label>
+        <input type="range" class="property-slider" id="${idPrefix}-gamma"
+               min="0.1" max="10" step="0.1" value="${resolvedVideoFilters.gamma}">
+      </div>
+      <div class="property-group">
+        <label class="property-label" for="${idPrefix}-rotate">Rotate ${defaultTag(videoOverrides.rotate !== undefined)}</label>
+        <select class="property-input" id="${idPrefix}-rotate">
+          <option value="0" ${resolvedVideoFilters.rotate === 0 ? 'selected' : ''}>0°</option>
+          <option value="90" ${resolvedVideoFilters.rotate === 90 ? 'selected' : ''}>90°</option>
+          <option value="180" ${resolvedVideoFilters.rotate === 180 ? 'selected' : ''}>180°</option>
+          <option value="270" ${resolvedVideoFilters.rotate === 270 ? 'selected' : ''}>270°</option>
+        </select>
+      </div>
+      <div class="property-group">
+        <input type="checkbox" class="property-checkbox" id="${idPrefix}-flip-h"
+               ${resolvedVideoFilters.flipH ? 'checked' : ''}>
+        <label class="property-label" for="${idPrefix}-flip-h">Flip Horizontal ${defaultTag(videoOverrides.flipH !== undefined)}</label>
+      </div>
+      <div class="property-group">
+        <input type="checkbox" class="property-checkbox" id="${idPrefix}-flip-v"
+               ${resolvedVideoFilters.flipV ? 'checked' : ''}>
+        <label class="property-label" for="${idPrefix}-flip-v">Flip Vertical ${defaultTag(videoOverrides.flipV !== undefined)}</label>
+      </div>
+      <div class="property-group">
+        <label class="property-label" for="${idPrefix}-blur">Blur ${defaultTag(videoOverrides.blur !== undefined)}</label>
+        <input type="range" class="property-slider" id="${idPrefix}-blur"
+               min="0" max="10" step="0.5" value="${resolvedVideoFilters.blur}">
+      </div>
+      <div class="property-group">
+        <label class="property-label" for="${idPrefix}-sharpen">Sharpen ${defaultTag(videoOverrides.sharpen !== undefined)}</label>
+        <input type="range" class="property-slider" id="${idPrefix}-sharpen"
+               min="0" max="10" step="0.5" value="${resolvedVideoFilters.sharpen}">
+      </div>
+      <div class="property-group">
+        <label class="property-label" for="${idPrefix}-denoise">Denoise ${defaultTag(videoOverrides.denoise !== undefined)}</label>
+        <input type="range" class="property-slider" id="${idPrefix}-denoise"
+               min="0" max="10" step="0.5" value="${resolvedVideoFilters.denoise}">
+      </div>
+      <div class="property-group">
+        <label class="property-label" for="${idPrefix}-fade-in">Fade In (s) ${defaultTag(videoOverrides.fadeIn !== undefined)}</label>
+        <input type="number" class="property-input" id="${idPrefix}-fade-in"
+               min="0" step="0.1" value="${resolvedVideoFilters.fadeIn}">
+      </div>
+      <div class="property-group">
+        <label class="property-label" for="${idPrefix}-fade-out">Fade Out (s) ${defaultTag(videoOverrides.fadeOut !== undefined)}</label>
+        <input type="number" class="property-input" id="${idPrefix}-fade-out"
+               min="0" step="0.1" value="${resolvedVideoFilters.fadeOut}">
+      </div>
+      <div class="property-group">
+        <button class="btn btn-secondary btn-sm" id="${idPrefix}-video-reset">
+          Reset Video Overrides
+        </button>
+      </div>
+
+      <h3 class="property-section-title">Audio Filters</h3>
+      <div class="property-group">
+        <label class="property-label" for="${idPrefix}-bass">Bass (dB) ${defaultTag(audioOverrides.bass !== undefined)}</label>
+        <input type="range" class="property-slider" id="${idPrefix}-bass"
+               min="-20" max="20" step="1" value="${resolvedAudioFilters.bass}">
+      </div>
+      <div class="property-group">
+        <label class="property-label" for="${idPrefix}-treble">Treble (dB) ${defaultTag(audioOverrides.treble !== undefined)}</label>
+        <input type="range" class="property-slider" id="${idPrefix}-treble"
+               min="-20" max="20" step="1" value="${resolvedAudioFilters.treble}">
+      </div>
+      <div class="property-group">
+        <input type="checkbox" class="property-checkbox" id="${idPrefix}-normalize"
+               ${resolvedAudioFilters.normalize ? 'checked' : ''}>
+        <label class="property-label" for="${idPrefix}-normalize">Normalize ${defaultTag(audioOverrides.normalize !== undefined)}</label>
+      </div>
+      <div class="property-group">
+        <label class="property-label" for="${idPrefix}-pan">Pan ${defaultTag(audioOverrides.pan !== undefined)}</label>
+        <input type="range" class="property-slider" id="${idPrefix}-pan"
+               min="-1" max="1" step="0.05" value="${resolvedAudioFilters.pan}">
+      </div>
+      <div class="property-group">
+        <label class="property-label" for="${idPrefix}-pitch">Pitch (semitones) ${defaultTag(audioOverrides.pitch !== undefined)}</label>
+        <input type="range" class="property-slider" id="${idPrefix}-pitch"
+               min="-12" max="12" step="1" value="${resolvedAudioFilters.pitch}">
+      </div>
+      <div class="property-group">
+        <label class="property-label" for="${idPrefix}-audio-fade-in">Fade In (s) ${defaultTag(audioOverrides.fadeIn !== undefined)}</label>
+        <input type="number" class="property-input" id="${idPrefix}-audio-fade-in"
+               min="0" step="0.1" value="${resolvedAudioFilters.fadeIn}">
+      </div>
+      <div class="property-group">
+        <label class="property-label" for="${idPrefix}-audio-fade-out">Fade Out (s) ${defaultTag(audioOverrides.fadeOut !== undefined)}</label>
+        <input type="number" class="property-input" id="${idPrefix}-audio-fade-out"
+               min="0" step="0.1" value="${resolvedAudioFilters.fadeOut}">
+      </div>
+      <div class="property-group">
+        <button class="btn btn-secondary btn-sm" id="${idPrefix}-audio-reset">
+          Reset Audio Overrides
+        </button>
+      </div>
+
       <div class="property-group">
         <button class="btn btn-secondary" id="${idPrefix}-delete" style="width: 100%;">
           Delete Clip
@@ -757,6 +1305,95 @@ class YTPEditor {
     document.getElementById(`${idPrefix}-color`).addEventListener('input', (e) => {
       this.state.dispatch(actions.updateClip(clip.id, { color: e.target.value }));
     });
+
+    const videoBindings = [
+      [`${idPrefix}-brightness`, 'brightness'],
+      [`${idPrefix}-contrast`, 'contrast'],
+      [`${idPrefix}-saturation`, 'saturation'],
+      [`${idPrefix}-hue`, 'hue'],
+      [`${idPrefix}-gamma`, 'gamma'],
+      [`${idPrefix}-blur`, 'blur'],
+      [`${idPrefix}-sharpen`, 'sharpen'],
+      [`${idPrefix}-denoise`, 'denoise'],
+      [`${idPrefix}-fade-in`, 'fadeIn'],
+      [`${idPrefix}-fade-out`, 'fadeOut'],
+    ];
+
+    videoBindings.forEach(([id, key]) => {
+      const input = document.getElementById(id);
+      if (!input) return;
+      input.addEventListener('input', (e) => {
+        const value = parseFloat(e.target.value);
+        if (Number.isNaN(value)) return;
+        this.state.dispatch(actions.updateClipVideoFilters(clip.id, { [key]: value }));
+      });
+    });
+
+    const rotateInput = document.getElementById(`${idPrefix}-rotate`);
+    if (rotateInput) {
+      rotateInput.addEventListener('change', (e) => {
+        const value = parseInt(e.target.value, 10);
+        if (Number.isNaN(value)) return;
+        this.state.dispatch(actions.updateClipVideoFilters(clip.id, { rotate: value }));
+      });
+    }
+
+    const flipHInput = document.getElementById(`${idPrefix}-flip-h`);
+    if (flipHInput) {
+      flipHInput.addEventListener('change', (e) => {
+        this.state.dispatch(actions.updateClipVideoFilters(clip.id, { flipH: e.target.checked }));
+      });
+    }
+
+    const flipVInput = document.getElementById(`${idPrefix}-flip-v`);
+    if (flipVInput) {
+      flipVInput.addEventListener('change', (e) => {
+        this.state.dispatch(actions.updateClipVideoFilters(clip.id, { flipV: e.target.checked }));
+      });
+    }
+
+    const videoResetBtn = document.getElementById(`${idPrefix}-video-reset`);
+    if (videoResetBtn) {
+      videoResetBtn.addEventListener('click', () => {
+        this.state.dispatch(actions.clearClipVideoFilters(clip.id));
+        this.renderPropertiesPanel(this.state.getState());
+      });
+    }
+
+    const audioBindings = [
+      [`${idPrefix}-bass`, 'bass'],
+      [`${idPrefix}-treble`, 'treble'],
+      [`${idPrefix}-pan`, 'pan'],
+      [`${idPrefix}-pitch`, 'pitch'],
+      [`${idPrefix}-audio-fade-in`, 'fadeIn'],
+      [`${idPrefix}-audio-fade-out`, 'fadeOut'],
+    ];
+
+    audioBindings.forEach(([id, key]) => {
+      const input = document.getElementById(id);
+      if (!input) return;
+      input.addEventListener('input', (e) => {
+        const value = parseFloat(e.target.value);
+        if (Number.isNaN(value)) return;
+        this.state.dispatch(actions.updateClipAudioFilters(clip.id, { [key]: value }));
+      });
+    });
+
+    const normalizeInput = document.getElementById(`${idPrefix}-normalize`);
+    if (normalizeInput) {
+      normalizeInput.addEventListener('change', (e) => {
+        this.state.dispatch(actions.updateClipAudioFilters(clip.id, { normalize: e.target.checked }));
+      });
+    }
+
+    const audioResetBtn = document.getElementById(`${idPrefix}-audio-reset`);
+    if (audioResetBtn) {
+      audioResetBtn.addEventListener('click', () => {
+        this.state.dispatch(actions.clearClipAudioFilters(clip.id));
+        this.state.dispatch(actions.updateClip(clip.id, { volume: undefined }));
+        this.renderPropertiesPanel(this.state.getState());
+      });
+    }
 
     document.getElementById(`${idPrefix}-delete`).addEventListener('click', () => {
       this.state.dispatch(actions.removeClip(clip.id));
@@ -1260,6 +1897,8 @@ class YTPEditor {
     if (segments.length === 0) return null;
 
     this.exportAudioWarning = false;
+    const exportSettings = this.getExportSettings(state);
+    const defaultFilters = this.getDefaultFilters(state);
 
     const mediaById = new Map(state.mediaLibrary.map(media => [media.id, media]));
     const inputList = [];
@@ -1280,8 +1919,13 @@ class YTPEditor {
 
     if (inputList.length === 0) return null;
 
-    const { width, height } = this.getExportResolution(state);
-    const fps = 30;
+    const resolution = exportSettings.resolution === 'auto'
+      ? this.getExportResolution(state)
+      : exportSettings.resolution;
+    const width = resolution && resolution.width ? resolution.width : 1280;
+    const height = resolution && resolution.height ? resolution.height : 720;
+    const fps = exportSettings.fps || 30;
+    const sampleRate = exportSettings.sampleRate || 44100;
     const filterParts = [];
     const segmentLabels = [];
     const scaleFilter = `scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
@@ -1301,19 +1945,77 @@ class YTPEditor {
         if (!media) return;
 
         const inputIndex = mediaIndexById.get(media.id);
-        const trimOffsetMs = segment.start - videoClip.start;
-        const sourceStartMs = (videoClip.trimStart || 0) + trimOffsetMs;
-        const startSec = this.formatSeconds(sourceStartMs);
-        const endSec = this.formatSeconds(sourceStartMs + durationMs);
+        const sourceWindow = this.getClipSourceWindow(videoClip, segment.start, durationMs);
+        const startSec = sourceWindow.startSec;
+        const endSec = sourceWindow.endSec;
         const mediaInfo = this.mediaInfo ? this.mediaInfo.get(media.id) : null;
         const isAudioOnly = media.type && media.type.startsWith('audio/');
         const hasVideo = mediaInfo ? mediaInfo.hasVideo !== false : !isAudioOnly;
-        const reverseVideo = videoClip.reversed ? ',reverse' : '';
+        const videoFilters = [];
 
         if (hasVideo) {
+          videoFilters.push(`trim=start=${startSec}:end=${endSec}`);
+          videoFilters.push('setpts=PTS-STARTPTS');
+          if (videoClip.reversed) {
+            videoFilters.push('reverse');
+            videoFilters.push('setpts=PTS-STARTPTS');
+          }
+          if (sourceWindow.speed && sourceWindow.speed !== 1) {
+            videoFilters.push(`setpts=PTS-STARTPTS/${sourceWindow.speed}`);
+          }
+
+          const vf = this.resolveVideoFilters(videoClip, defaultFilters);
+          const eqParts = [];
+          if (vf.brightness !== 0) eqParts.push(`brightness=${vf.brightness}`);
+          if (vf.contrast !== 1) eqParts.push(`contrast=${vf.contrast}`);
+          if (vf.saturation !== 1) eqParts.push(`saturation=${vf.saturation}`);
+          if (vf.gamma !== 1) eqParts.push(`gamma=${vf.gamma}`);
+          if (eqParts.length > 0) {
+            videoFilters.push(`eq=${eqParts.join(':')}`);
+          }
+          if (vf.hue !== 0) {
+            videoFilters.push(`hue=h=${vf.hue}`);
+          }
+          if (vf.rotate === 90) {
+            videoFilters.push('transpose=1');
+          } else if (vf.rotate === 180) {
+            videoFilters.push('transpose=2,transpose=2');
+          } else if (vf.rotate === 270) {
+            videoFilters.push('transpose=2');
+          }
+          if (vf.flipH) {
+            videoFilters.push('hflip');
+          }
+          if (vf.flipV) {
+            videoFilters.push('vflip');
+          }
+          if (vf.blur > 0) {
+            videoFilters.push(`boxblur=lr=${vf.blur}:lp=1`);
+          }
+          if (vf.sharpen > 0) {
+            videoFilters.push(`unsharp=5:5:${vf.sharpen}:5:5:0.0`);
+          }
+          if (vf.denoise > 0) {
+            const strength = (vf.denoise / 2).toFixed(2).replace(/\.?0+$/, '');
+            const luma = strength;
+            const chroma = (vf.denoise / 2 * 1.5).toFixed(2).replace(/\.?0+$/, '');
+            videoFilters.push(`hqdn3d=${luma}:${luma}:${chroma}:${chroma}`);
+          }
+          if (vf.fadeIn > 0) {
+            videoFilters.push(`fade=in:st=0:d=${vf.fadeIn}`);
+          }
+          if (vf.fadeOut > 0) {
+            const durationSec = durationMs / 1000;
+            const start = Math.max(0, durationSec - vf.fadeOut);
+            const startValue = start.toFixed(3).replace(/\.?0+$/, '');
+            videoFilters.push(`fade=out:st=${startValue}:d=${vf.fadeOut}`);
+          }
+
+          videoFilters.push(scaleFilter);
+          videoFilters.push('format=yuv420p');
+
           filterParts.push(
-            `[${inputIndex}:v]trim=start=${startSec}:end=${endSec},` +
-            `setpts=PTS-STARTPTS${reverseVideo},${scaleFilter},format=yuv420p[${vLabel}]`
+            `[${inputIndex}:v]${videoFilters.join(',')}[${vLabel}]`
           );
         } else {
           const durationSec = this.formatSeconds(durationMs);
@@ -1335,10 +2037,9 @@ class YTPEditor {
         if (!media) return;
 
         const inputIndex = mediaIndexById.get(media.id);
-        const trimOffsetMs = segment.start - audioClip.start;
-        const sourceStartMs = (audioClip.trimStart || 0) + trimOffsetMs;
-        const startSec = this.formatSeconds(sourceStartMs);
-        const endSec = this.formatSeconds(sourceStartMs + durationMs);
+        const sourceWindow = this.getClipSourceWindow(audioClip, segment.start, durationMs);
+        const startSec = sourceWindow.startSec;
+        const endSec = sourceWindow.endSec;
         const mediaInfo = this.mediaInfo ? this.mediaInfo.get(media.id) : null;
         const isAudioOnly = media.type && media.type.startsWith('audio/');
         let hasAudio = false;
@@ -1349,23 +2050,71 @@ class YTPEditor {
         } else {
           this.exportAudioWarning = true;
         }
-        const reverseAudio = audioClip.reversed ? ',areverse' : '';
+        const audioFilters = [];
 
         if (hasAudio) {
+          audioFilters.push(`atrim=start=${startSec}:end=${endSec}`);
+          audioFilters.push('asetpts=PTS-STARTPTS');
+          if (audioClip.reversed) {
+            audioFilters.push('areverse');
+            audioFilters.push('asetpts=PTS-STARTPTS');
+          }
+
+          const af = this.resolveAudioFilters(audioClip, defaultFilters);
+          const pitchSemitones = af.pitch || 0;
+          const pitchRatio = Math.pow(2, pitchSemitones / 12);
+          const speed = sourceWindow.speed || 1;
+          const tempo = speed / pitchRatio;
+
+          if (pitchSemitones !== 0) {
+            const rate = (sampleRate * pitchRatio).toFixed(2).replace(/\.?0+$/, '');
+            audioFilters.push(`asetrate=${rate}`);
+          }
+
+          this.buildAtempoFilters(tempo).forEach(filter => audioFilters.push(filter));
+
+          if (af.bass) {
+            audioFilters.push(`bass=g=${af.bass}`);
+          }
+          if (af.treble) {
+            audioFilters.push(`treble=g=${af.treble}`);
+          }
+          if (af.normalize) {
+            audioFilters.push('dynaudnorm');
+          }
+          if (af.pan) {
+            const left = ((1 - af.pan) / 2).toFixed(3).replace(/\.?0+$/, '');
+            const right = ((1 + af.pan) / 2).toFixed(3).replace(/\.?0+$/, '');
+            audioFilters.push(`pan=stereo|c0=${left}*c0+${left}*c1|c1=${right}*c0+${right}*c1`);
+          }
+          if (af.fadeIn > 0) {
+            audioFilters.push(`afade=t=in:st=0:d=${af.fadeIn}`);
+          }
+          if (af.fadeOut > 0) {
+            const durationSec = durationMs / 1000;
+            const start = Math.max(0, durationSec - af.fadeOut);
+            const startValue = start.toFixed(3).replace(/\.?0+$/, '');
+            audioFilters.push(`afade=t=out:st=${startValue}:d=${af.fadeOut}`);
+          }
+
+          const volume = audioClip.muted ? 0 : this.resolveClipVolume(audioClip, defaultFilters);
+          if (volume !== 1) {
+            audioFilters.push(`volume=${volume}`);
+          }
+
           filterParts.push(
-            `[${inputIndex}:a]atrim=start=${startSec}:end=${endSec},` +
-            `asetpts=PTS-STARTPTS${reverseAudio}[${aLabel}]`
+            `[${inputIndex}:a]${audioFilters.join(',')}[${aLabel}]`
           );
         } else {
           const durationSec = this.formatSeconds(durationMs);
           filterParts.push(
-            `anullsrc=channel_layout=stereo:sample_rate=44100:d=${durationSec}[${aLabel}]`
+            `anullsrc=channel_layout=stereo:sample_rate=${sampleRate}:d=${durationSec}[${aLabel}]`
           );
         }
       } else {
         const durationSec = this.formatSeconds(durationMs);
         filterParts.push(
-          `anullsrc=channel_layout=stereo:sample_rate=44100:d=${durationSec}[${aLabel}]`
+          `anullsrc=channel_layout=stereo:sample_rate=${sampleRate}:d=${durationSec}[${aLabel}]`
         );
       }
 
@@ -1382,9 +2131,47 @@ class YTPEditor {
       .map(media => `-i "${this.escapeShellArg(media.name)}"`)
       .join(' ');
     const filterComplex = filterParts.join('; ');
+    const outputFormat = exportSettings.format || 'mp4';
+    const videoFlags = [];
+    const audioFlags = [];
+
+    if (exportSettings.videoCodec) {
+      videoFlags.push(`-c:v ${exportSettings.videoCodec}`);
+    }
+
+    if (exportSettings.videoBitrate) {
+      videoFlags.push(`-b:v ${exportSettings.videoBitrate}`);
+    } else if (
+      exportSettings.videoCodec &&
+      (exportSettings.videoCodec.includes('264') || exportSettings.videoCodec.includes('265'))
+    ) {
+      videoFlags.push(`-crf ${exportSettings.crf || 23}`);
+      if (exportSettings.preset) {
+        videoFlags.push(`-preset ${exportSettings.preset}`);
+      }
+    }
+
+    if (exportSettings.fps) {
+      videoFlags.push(`-r ${exportSettings.fps}`);
+    }
+
+    if (exportSettings.audioCodec) {
+      audioFlags.push(`-c:a ${exportSettings.audioCodec}`);
+    }
+    if (exportSettings.audioBitrate) {
+      audioFlags.push(`-b:a ${exportSettings.audioBitrate}`);
+    }
+    if (exportSettings.sampleRate) {
+      audioFlags.push(`-ar ${exportSettings.sampleRate}`);
+    }
+    const movFlags = (outputFormat === 'mp4' || outputFormat === 'mov')
+      ? ' -movflags +faststart'
+      : '';
 
     return `ffmpeg ${inputs} -filter_complex "${filterComplex}" ` +
-      `-map "[outv]" -map "[outa]" -movflags +faststart -y output.mp4`;
+      `-map "[outv]" -map "[outa]" ` +
+      `${videoFlags.join(' ')} ${audioFlags.join(' ')}` +
+      `${movFlags} -y output.${outputFormat}`;
   }
 
   /**
@@ -1502,6 +2289,62 @@ class YTPEditor {
   }
 
   /**
+   * Compute source trim window for a timeline segment
+   * @param {import('./core/types.js').Clip} clip
+   * @param {number} segmentStart
+   * @param {number} durationMs
+   * @returns {{startSec: string, endSec: string, speed: number}}
+   */
+  getClipSourceWindow(clip, segmentStart, durationMs) {
+    const clipSpeed = clip.speed || 1;
+    const segmentOffsetMs = segmentStart - clip.start;
+    const sourceDurationMs = durationMs * clipSpeed;
+    const trimStart = clip.trimStart || 0;
+
+    if (clip.reversed) {
+      const sourceLengthMs = clip.duration * clipSpeed;
+      const reverseStart = sourceLengthMs - (segmentOffsetMs + durationMs) * clipSpeed;
+      const sourceStartMs = trimStart + Math.max(0, reverseStart);
+      return {
+        startSec: this.formatSeconds(sourceStartMs),
+        endSec: this.formatSeconds(sourceStartMs + sourceDurationMs),
+        speed: clipSpeed,
+      };
+    }
+
+    const sourceStartMs = trimStart + segmentOffsetMs * clipSpeed;
+    return {
+      startSec: this.formatSeconds(sourceStartMs),
+      endSec: this.formatSeconds(sourceStartMs + sourceDurationMs),
+      speed: clipSpeed,
+    };
+  }
+
+  /**
+   * Build chained atempo filters for a tempo value
+   * @param {number} tempo
+   * @returns {string[]}
+   */
+  buildAtempoFilters(tempo) {
+    const filters = [];
+    if (!tempo || tempo === 1) return filters;
+    let remaining = tempo;
+    while (remaining < 0.5) {
+      filters.push('atempo=0.5');
+      remaining /= 0.5;
+    }
+    while (remaining > 2.0) {
+      filters.push('atempo=2.0');
+      remaining /= 2.0;
+    }
+    if (Math.abs(remaining - 1) > 0.001) {
+      const value = remaining.toFixed(3).replace(/\.?0+$/, '');
+      filters.push(`atempo=${value}`);
+    }
+    return filters;
+  }
+
+  /**
    * Escape double quotes for shell usage
    * @param {string} value
    * @returns {string}
@@ -1534,6 +2377,7 @@ class YTPEditor {
     const state = this.state.getState();
     const playhead = state.playhead;
     const now = performance.now();
+    const defaultFilters = this.getDefaultFilters(state);
 
     // Clear canvas
     const width = this.previewCanvas.width;
@@ -1559,11 +2403,15 @@ class YTPEditor {
       const clipOffset = playhead - clip.start;
       const clipDuration = clip.duration;
       const trimStart = clip.trimStart || 0;
-      let sourceOffset = clip.reversed ? (clipDuration - clipOffset) : clipOffset;
-      if (clip.reversed && sourceOffset >= clipDuration) {
-        sourceOffset = Math.max(0, clipDuration - 1);
+      const clipSpeed = clip.speed || 1;
+      const sourceDuration = clipDuration * clipSpeed;
+      let sourceOffset = clip.reversed
+        ? (sourceDuration - clipOffset * clipSpeed)
+        : (clipOffset * clipSpeed);
+      if (clip.reversed && sourceOffset >= sourceDuration) {
+        sourceOffset = Math.max(0, sourceDuration - 1);
       }
-      sourceOffset = Math.max(0, Math.min(clipDuration, sourceOffset));
+      sourceOffset = Math.max(0, Math.min(sourceDuration, sourceOffset));
       return (trimStart + sourceOffset) / 1000;
     };
 
@@ -1636,7 +2484,7 @@ class YTPEditor {
       activeAudioMediaIds.add(audioClipMedia.id);
 
       const clipTime = getClipTime(topmostAudioClip);
-      const clipVolume = topmostAudioClip.volume !== undefined ? topmostAudioClip.volume : 1.0;
+      const clipVolume = this.resolveClipVolume(topmostAudioClip, defaultFilters);
       const isMuted = topmostAudioClip.muted || false;
       const isReversed = topmostAudioClip.reversed === true;
       const targetVolume = isMuted ? 0 : (clipVolume * this.masterVolume);

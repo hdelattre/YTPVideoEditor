@@ -21,6 +21,8 @@
  * @property {number} [volume] - Audio volume (0.0 to 1.0, default 1.0)
  * @property {boolean} [muted] - Is audio muted (default false)
  * @property {boolean} [visible] - Show video for this clip (default true)
+ * @property {ClipVideoFilters} [videoFilters] - Per-clip video filter overrides
+ * @property {ClipAudioFilters} [audioFilters] - Per-clip audio filter overrides
  */
 
 /**
@@ -29,6 +31,55 @@
  * @property {number} y - Y position (px)
  * @property {number} scale - Scale multiplier
  * @property {number} rotation - Rotation in degrees
+ */
+
+/**
+ * @typedef {Object} ClipVideoFilters
+ * @property {number} [brightness] - -1.0 to 1.0
+ * @property {number} [contrast] - 0.0 to 4.0
+ * @property {number} [saturation] - 0.0 to 3.0
+ * @property {number} [hue] - -180 to 180
+ * @property {number} [gamma] - 0.1 to 10.0
+ * @property {number} [rotate] - 0, 90, 180, 270
+ * @property {boolean} [flipH]
+ * @property {boolean} [flipV]
+ * @property {number} [blur] - 0-10
+ * @property {number} [sharpen] - 0-10
+ * @property {number} [denoise] - 0-10
+ * @property {number} [fadeIn] - seconds
+ * @property {number} [fadeOut] - seconds
+ */
+
+/**
+ * @typedef {Object} ClipAudioFilters
+ * @property {number} [volume] - 0.0 to 2.0
+ * @property {number} [bass] - -20 to 20 dB
+ * @property {number} [treble] - -20 to 20 dB
+ * @property {boolean} [normalize]
+ * @property {number} [pan] - -1.0 to 1.0
+ * @property {number} [pitch] - -12 to 12 semitones
+ * @property {number} [fadeIn] - seconds
+ * @property {number} [fadeOut] - seconds
+ */
+
+/**
+ * @typedef {Object} ExportSettings
+ * @property {('auto'|{width: number, height: number})} resolution
+ * @property {number} fps
+ * @property {string} videoCodec
+ * @property {string} videoBitrate
+ * @property {number} crf
+ * @property {string} preset
+ * @property {string} audioCodec
+ * @property {string} audioBitrate
+ * @property {number} sampleRate
+ * @property {string} format
+ */
+
+/**
+ * @typedef {Object} DefaultFilters
+ * @property {ClipVideoFilters} video
+ * @property {ClipAudioFilters} audio
  */
 
 /**
@@ -81,6 +132,8 @@
  * @property {string[]} selectedClipIds - IDs of selected clips
  * @property {boolean} isPlaying - Is timeline playing
  * @property {ExportState} exportState - Export progress state
+ * @property {ExportSettings} exportSettings - Export configuration
+ * @property {DefaultFilters} defaultFilters - Global default filters
  * @property {number} scrollX - Timeline horizontal scroll position
  */
 

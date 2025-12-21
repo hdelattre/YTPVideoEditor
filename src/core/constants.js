@@ -74,6 +74,58 @@ export const DEFAULT_CLIP_COLOR = COLORS.clipDefault;
 export const DEFAULT_CLIP_DURATION = 5000; // ms
 export const DEFAULT_SPEED = 1.0;
 
+// Export defaults
+export const DEFAULT_EXPORT_SETTINGS = {
+  resolution: 'auto',
+  fps: 30,
+  videoCodec: 'libx264',
+  videoBitrate: '',
+  crf: 23,
+  preset: 'medium',
+  audioCodec: 'aac',
+  audioBitrate: '192k',
+  sampleRate: 44100,
+  format: 'mp4',
+};
+
+export const DEFAULT_VIDEO_FILTERS = {
+  brightness: 0,
+  contrast: 1,
+  saturation: 1,
+  hue: 0,
+  gamma: 1,
+  rotate: 0,
+  flipH: false,
+  flipV: false,
+  blur: 0,
+  sharpen: 0,
+  denoise: 0,
+  fadeIn: 0,
+  fadeOut: 0,
+};
+
+export const DEFAULT_AUDIO_FILTERS = {
+  volume: 1,
+  bass: 0,
+  treble: 0,
+  normalize: false,
+  pan: 0,
+  pitch: 0,
+  fadeIn: 0,
+  fadeOut: 0,
+};
+
+export function createDefaultExportSettings() {
+  return { ...DEFAULT_EXPORT_SETTINGS };
+}
+
+export function createDefaultFilters() {
+  return {
+    video: { ...DEFAULT_VIDEO_FILTERS },
+    audio: { ...DEFAULT_AUDIO_FILTERS },
+  };
+}
+
 // Media
 export const SUPPORTED_VIDEO_TYPES = [
   'video/mp4',

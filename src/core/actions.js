@@ -26,11 +26,13 @@ export function addClip(clip) {
       waveformData: clip.waveformData,
       reversed: clip.reversed || false,
       speed: clip.speed || DEFAULT_SPEED,
-      volume: clip.volume !== undefined ? clip.volume : 1,
+      volume: clip.volume,
       muted: Boolean(clip.muted),
       visible: clip.visible !== undefined
         ? Boolean(clip.visible)
         : (clip.videoMuted !== undefined ? !clip.videoMuted : true),
+      videoFilters: clip.videoFilters ? { ...clip.videoFilters } : undefined,
+      audioFilters: clip.audioFilters ? { ...clip.audioFilters } : undefined,
     });
     return state;
   };
@@ -238,6 +240,124 @@ export function updateMedia(mediaId, updates) {
     const media = state.mediaLibrary.find(m => m.id === mediaId);
     if (media) {
       Object.assign(media, updates);
+    }
+    return state;
+  };
+}
+
+/**
+ * Update export settings
+ * @param {Partial<import('./types.js').ExportSettings>} updates
+ * @returns {import('./types.js').ActionFunction}
+ */
+export function updateExportSettings(updates) {
+  return (state) => {
+    state.exportSettings = {
+      ...state.exportSettings,
+      ...updates,
+    };
+    return state;
+  };
+}
+
+/**
+ * Update global default filters
+ * @param {'video'|'audio'} section
+ * @param {object} updates
+ * @returns {import('./types.js').ActionFunction}
+ */
+export function updateDefaultFilters(section, updates) {
+  return (state) => {
+    if (!state.defaultFilters) {
+      state.defaultFilters = { video: {}, audio: {} };
+    }
+    if (!state.defaultFilters[section]) {
+      state.defaultFilters[section] = {};
+    }
+    Object.assign(state.defaultFilters[section], updates);
+    return state;
+  };
+}
+
+/**
+ * Update per-clip video filters (override defaults)
+ * @param {string} clipId
+ * @param {object} updates
+ * @returns {import('./types.js').ActionFunction}
+ */
+export function updateClipVideoFilters(clipId, updates) {
+  return (state) => {
+    const clip = state.clips.find(c => c.id === clipId);
+    if (!clip) return state;
+    if (!clip.videoFilters) {
+      clip.videoFilters = {};
+    }
+    Object.entries(updates || {}).forEach(([key, value]) => {
+      if (value === undefined) {
+        delete clip.videoFilters[key];
+      } else {
+        clip.videoFilters[key] = value;
+      }
+    });
+    if (Object.keys(clip.videoFilters).length === 0) {
+      delete clip.videoFilters;
+    }
+    return state;
+  };
+}
+
+/**
+ * Update per-clip audio filters (override defaults)
+ * @param {string} clipId
+ * @param {object} updates
+ * @returns {import('./types.js').ActionFunction}
+ */
+export function updateClipAudioFilters(clipId, updates) {
+  return (state) => {
+    const clip = state.clips.find(c => c.id === clipId);
+    if (!clip) return state;
+    if (!clip.audioFilters) {
+      clip.audioFilters = {};
+    }
+    Object.entries(updates || {}).forEach(([key, value]) => {
+      if (value === undefined) {
+        delete clip.audioFilters[key];
+      } else {
+        clip.audioFilters[key] = value;
+      }
+    });
+    if (Object.keys(clip.audioFilters).length === 0) {
+      delete clip.audioFilters;
+    }
+    return state;
+  };
+}
+
+/**
+ * Clear all per-clip video filter overrides
+ * @param {string} clipId
+ * @returns {import('./types.js').ActionFunction}
+ */
+export function clearClipVideoFilters(clipId) {
+  return (state) => {
+    const clip = state.clips.find(c => c.id === clipId);
+    if (clip && clip.videoFilters) {
+      delete clip.videoFilters;
+    }
+    return state;
+  };
+}
+
+/**
+ * Clear all per-clip audio filter overrides
+ * @param {string} clipId
+ * @returns {import('./types.js').ActionFunction}
+ */
+export function clearClipAudioFilters(clipId) {
+  return (state) => {
+    const clip = state.clips.find(c => c.id === clipId);
+    if (clip && clip.audioFilters) {
+      delete clip.audioFilters;
     }
     return state;
   };

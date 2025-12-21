@@ -3,7 +3,12 @@
  * State management with history tracking and pub/sub
  */
 
-import { MAX_HISTORY_LEVELS, DEFAULT_TRACK_COUNT } from './constants.js';
+import {
+  MAX_HISTORY_LEVELS,
+  DEFAULT_TRACK_COUNT,
+  createDefaultExportSettings,
+  createDefaultFilters,
+} from './constants.js';
 
 /**
  * State Manager with history tracking and pub/sub
@@ -49,6 +54,8 @@ export class StateManager {
         isExporting: false,
         progress: 0,
       },
+      exportSettings: createDefaultExportSettings(),
+      defaultFilters: createDefaultFilters(),
       scrollX: 0,
     };
   }
@@ -225,10 +232,29 @@ export class StateManager {
           ? [loadedState.selectedClipId]
           : [];
       }
+      const defaultExportSettings = createDefaultExportSettings();
+      loadedState.exportSettings = {
+        ...defaultExportSettings,
+        ...(loadedState.exportSettings || {}),
+      };
+      const defaultFilters = createDefaultFilters();
+      loadedState.defaultFilters = {
+        video: {
+          ...defaultFilters.video,
+          ...((loadedState.defaultFilters && loadedState.defaultFilters.video) || {}),
+        },
+        audio: {
+          ...defaultFilters.audio,
+          ...((loadedState.defaultFilters && loadedState.defaultFilters.audio) || {}),
+        },
+      };
       if (Array.isArray(loadedState.clips)) {
         loadedState.clips.forEach(clip => {
           if (clip && clip.visible === undefined && clip.videoMuted !== undefined) {
             clip.visible = !clip.videoMuted;
+          }
+          if (clip && 'volume' in clip && clip.volume === 1) {
+            delete clip.volume;
           }
         });
       }
