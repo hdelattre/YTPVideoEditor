@@ -2066,7 +2066,7 @@ class YTPEditor {
     const filterParts = [];
     const segmentLabels = [];
     const scaleFilter = `scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
-      `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2`;
+      `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1`;
 
     segments.forEach((segment, index) => {
       const vLabel = `v${index}`;
@@ -2158,14 +2158,14 @@ class YTPEditor {
           const durationSec = this.formatSeconds(durationMs);
           filterParts.push(
             `color=c=black:s=${width}x${height}:r=${fps}:d=${durationSec},` +
-            `format=yuv420p[${vLabel}]`
+            `format=yuv420p,setsar=1[${vLabel}]`
           );
         }
       } else {
         const durationSec = this.formatSeconds(durationMs);
         filterParts.push(
           `color=c=black:s=${width}x${height}:r=${fps}:d=${durationSec},` +
-          `format=yuv420p[${vLabel}]`
+          `format=yuv420p,setsar=1[${vLabel}]`
         );
       }
 
@@ -2179,11 +2179,15 @@ class YTPEditor {
         const endSec = sourceWindow.endSec;
         const mediaInfo = this.mediaInfo ? this.mediaInfo.get(media.id) : null;
         const isAudioOnly = media.type && media.type.startsWith('audio/');
+        const isVideoType = media.type && media.type.startsWith('video/');
         let hasAudio = false;
         if (mediaInfo && mediaInfo.hasAudio !== null && mediaInfo.hasAudio !== undefined) {
           hasAudio = mediaInfo.hasAudio === true;
         } else if (isAudioOnly) {
           hasAudio = true;
+        } else if (isVideoType) {
+          hasAudio = true;
+          this.exportAudioWarning = true;
         } else {
           this.exportAudioWarning = true;
         }
