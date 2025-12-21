@@ -32,6 +32,7 @@ export class MediaManager {
       const missingMatch = this.findMissingMediaMatch(file, metadata);
       if (missingMatch) {
         const mediaId = missingMatch.id;
+        this.editor.playbackCache.revokeObjectUrl(mediaId);
         this.editor.mediaFiles.set(mediaId, file);
         this.editor.mediaInfo.set(mediaId, {
           hasAudio: metadata.hasAudio,
@@ -49,6 +50,11 @@ export class MediaManager {
         }));
         this.editor.updateStatus(`Relinked ${file.name}`);
       } else {
+        const existingMatch = this.findExistingMediaMatch(file, metadata);
+        if (existingMatch) {
+          this.editor.updateStatus(`${file.name} is already loaded`);
+          continue;
+        }
         // Add to media library
         const mediaId = crypto.randomUUID();
         // Ensure render sees the file as present on the first state update.
@@ -116,6 +122,33 @@ export class MediaManager {
     });
 
     return best;
+  }
+
+  /**
+   * Find an existing loaded media entry that matches an uploaded file
+   * @param {File} file
+   * @param {{duration: number, width: number, height: number}} metadata
+   * @returns {import('../core/types.js').Media|null}
+   */
+  findExistingMediaMatch(file, metadata) {
+    const state = this.editor.state.getState();
+    if (!state.mediaLibrary || state.mediaLibrary.length === 0) return null;
+    if (!this.editor.mediaFiles) return null;
+
+    const duration = Number.isFinite(metadata.duration) && metadata.duration > 0
+      ? metadata.duration
+      : null;
+
+    return state.mediaLibrary.find((media) => {
+      if (!this.editor.mediaFiles.has(media.id)) return false;
+      if (media.name !== file.name) return false;
+      if (media.size !== file.size) return false;
+      if (media.type !== file.type) return false;
+      if (duration !== null && Number.isFinite(media.duration) && media.duration > 0) {
+        return Math.abs(media.duration - duration) < 100;
+      }
+      return true;
+    }) || null;
   }
 
   /**
@@ -268,6 +301,7 @@ export class MediaManager {
     const metadata = await this.getVideoMetadata(file);
 
     if (!this.editor.mediaFiles) this.editor.mediaFiles = new Map();
+    this.editor.playbackCache.revokeObjectUrl(mediaId);
     this.editor.mediaFiles.set(mediaId, file);
 
     const isAudioOnly = file.type.startsWith('audio/');

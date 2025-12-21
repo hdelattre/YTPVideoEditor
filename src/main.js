@@ -12,6 +12,7 @@ import { setupRangeVisuals } from './ui/rangeVisuals.js';
 import { PropertiesPanel } from './ui/properties.js';
 import { buildFfmpegExportCommand } from './export/ffmpeg.js';
 import { MediaManager } from './media/MediaManager.js';
+import { PlaybackCache } from './media/PlaybackCache.js';
 import {
   MIN_ZOOM,
   MAX_ZOOM,
@@ -55,6 +56,10 @@ class YTPEditor {
 
     // Initialize UI components
     this.initializeUI();
+    this.playbackCache = new PlaybackCache({
+      videoElements: this.videoElements,
+      audioElements: this.audioElements,
+    });
     this.propertiesPanel = new PropertiesPanel(this);
     this.mediaManager = new MediaManager(this);
 
@@ -612,34 +617,12 @@ class YTPEditor {
       this.mediaFiles.clear();
     }
 
+    if (this.playbackCache) {
+      this.playbackCache.clearAll();
+    }
+
     if (this.mediaInfo) {
       this.mediaInfo.clear();
-    }
-
-    if (this.videoElements) {
-      this.videoElements.forEach(video => {
-        try {
-          video.pause();
-        } catch (error) {
-          // Ignore video pause errors
-        }
-        video.removeAttribute('src');
-        video.load();
-      });
-      this.videoElements.clear();
-    }
-
-    if (this.audioElements) {
-      this.audioElements.forEach(audio => {
-        try {
-          audio.pause();
-        } catch (error) {
-          // Ignore audio pause errors
-        }
-        audio.removeAttribute('src');
-        audio.load();
-      });
-      this.audioElements.clear();
     }
     this.stopReverseAudio();
   }
@@ -995,7 +978,7 @@ class YTPEditor {
       const file = this.mediaFiles.get(media.id);
       if (!this.videoElements.has(media.id)) {
         const video = document.createElement('video');
-        video.src = URL.createObjectURL(file);
+        video.src = this.playbackCache.getObjectUrl(media.id, file);
         video.muted = true;
         video.preload = 'auto';
         video.volume = 0;
@@ -1010,7 +993,7 @@ class YTPEditor {
       const file = this.mediaFiles.get(media.id);
       if (!this.audioElements.has(media.id)) {
         const audio = document.createElement('video');
-        audio.src = URL.createObjectURL(file);
+        audio.src = this.playbackCache.getObjectUrl(media.id, file);
         audio.muted = false;
         audio.preload = 'auto';
         audio.volume = this.masterVolume;
