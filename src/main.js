@@ -1796,8 +1796,16 @@ class YTPEditor {
       transcriptResults.addEventListener('click', (e) => {
         const button = e.target.closest('.transcript-result');
         if (!button) return;
-        const time = Number(button.dataset.clipTime);
-        if (!Number.isFinite(time)) return;
+        const storedClipTime = Number(button.dataset.clipTime);
+        const storedSourceTime = Number(button.dataset.sourceTime);
+        if (!Number.isFinite(storedClipTime)) return;
+        const currentClip = this.state.getState().clips.find(c => c.id === clip.id);
+        const resolvedClip = currentClip || clip;
+        let time = storedClipTime;
+        if (Number.isFinite(storedSourceTime)) {
+          const range = this.getClipSourceRange(resolvedClip);
+          time = this.mapSourceTimeToClipTime(resolvedClip, storedSourceTime, range);
+        }
         this.timeline.scrollToTime(time);
         this.state.dispatch(actions.setPlayhead(time), false);
       });
@@ -2988,7 +2996,7 @@ class YTPEditor {
       if (cue.end <= range.start || cue.start >= range.end) return;
       if (search && (!cue.text || !cue.text.toLowerCase().includes(search))) return;
       const clipTime = this.mapSourceTimeToClipTime(clip, cue.start, range);
-      matches.push({ clipTime, text: cue.text || '' });
+      matches.push({ clipTime, sourceTime: cue.start, text: cue.text || '' });
     });
 
     if (matches.length === 0) {
@@ -3006,7 +3014,8 @@ class YTPEditor {
     const endIndex = Math.min(matches.length, startIndex + pageSize);
     const visible = matches.slice(startIndex, endIndex);
     container.innerHTML = visible.map((item) => (
-      `<button type="button" class="transcript-result" data-clip-time="${item.clipTime}">
+      `<button type="button" class="transcript-result"
+        data-clip-time="${item.clipTime}" data-source-time="${item.sourceTime}">
         <span class="transcript-time">${formatTime(item.clipTime)}</span>
         <span class="transcript-text">${this.escapeHtml(item.text)}</span>
       </button>`
