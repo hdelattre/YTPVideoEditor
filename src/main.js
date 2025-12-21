@@ -12,6 +12,7 @@ import {
   MIN_ZOOM,
   MAX_ZOOM,
   ZOOM_STEP,
+  EXPORT_PRESETS,
   createDefaultExportSettings,
   createDefaultFilters,
 } from './core/constants.js';
@@ -497,6 +498,80 @@ class YTPEditor {
   }
 
   /**
+   * Find a matching export preset id for current settings
+   * @param {import('./core/types.js').ExportSettings} exportSettings
+   * @returns {string}
+   */
+  getExportPresetMatch(exportSettings) {
+    if (!Array.isArray(EXPORT_PRESETS)) return '';
+    for (const preset of EXPORT_PRESETS) {
+      if (this.exportSettingsMatchPreset(exportSettings, preset.settings)) {
+        return preset.id;
+      }
+    }
+    return '';
+  }
+
+  /**
+   * Check if export settings match a preset
+   * @param {import('./core/types.js').ExportSettings} exportSettings
+   * @param {object} presetSettings
+   * @returns {boolean}
+   */
+  exportSettingsMatchPreset(exportSettings, presetSettings) {
+    const normalizeResolution = (value) => {
+      if (value === 'auto') return 'auto';
+      if (!value || typeof value !== 'object') return null;
+      const width = Number(value.width);
+      const height = Number(value.height);
+      if (!Number.isFinite(width) || !Number.isFinite(height)) return null;
+      return { width, height };
+    };
+
+    const currentResolution = normalizeResolution(exportSettings.resolution);
+    const presetResolution = normalizeResolution(presetSettings.resolution);
+
+    if (!presetResolution) {
+      return false;
+    }
+    if (presetResolution === 'auto') {
+      if (currentResolution !== 'auto') return false;
+    } else {
+      if (!currentResolution || currentResolution === 'auto') return false;
+      if (
+        currentResolution.width !== presetResolution.width ||
+        currentResolution.height !== presetResolution.height
+      ) {
+        return false;
+      }
+    }
+
+    const numberKeys = new Set(['fps', 'crf', 'sampleRate']);
+    const keys = [
+      'fps',
+      'videoCodec',
+      'videoBitrate',
+      'crf',
+      'preset',
+      'audioCodec',
+      'audioBitrate',
+      'sampleRate',
+    ];
+
+    for (const key of keys) {
+      const presetValue = presetSettings[key];
+      const currentValue = exportSettings[key];
+      if (numberKeys.has(key)) {
+        if (Number(presetValue) !== Number(currentValue)) return false;
+      } else if (String(presetValue || '') !== String(currentValue || '')) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  /**
    * Get global default filters with defaults applied
    * @param {import('./core/types.js').EditorState} state
    * @returns {import('./core/types.js').DefaultFilters}
@@ -724,9 +799,23 @@ class YTPEditor {
         : null;
       const rangeStartValue = this.formatSeconds(rangeStartMs);
       const rangeEndValue = rangeEndMs !== null ? this.formatSeconds(rangeEndMs) : '';
+      const presetMatchId = this.getExportPresetMatch(exportSettings);
+      const presetOptions = Array.isArray(EXPORT_PRESETS)
+        ? EXPORT_PRESETS.map((preset) => (
+          `<option value="${preset.id}" ${presetMatchId === preset.id ? 'selected' : ''}>${preset.label}</option>`
+        )).join('')
+        : '';
 
       propertiesContent.innerHTML = `
         <h3 class="property-section-title">Project Settings</h3>
+        <div class="property-group">
+          <label class="property-label" for="project-export-preset">Export Preset</label>
+          <select class="property-input" id="project-export-preset">
+            <option value="">Custom</option>
+            ${presetOptions}
+          </select>
+          <div class="property-help">Presets keep the current container format.</div>
+        </div>
         <div class="property-group">
           <label class="property-label" for="project-resolution-mode">Resolution</label>
           <select class="property-input" id="project-resolution-mode">
@@ -965,6 +1054,21 @@ class YTPEditor {
 
       resolutionWidth.addEventListener('input', updateResolution);
       resolutionHeight.addEventListener('input', updateResolution);
+
+      const presetSelect = document.getElementById('project-export-preset');
+      if (presetSelect) {
+        presetSelect.addEventListener('change', (e) => {
+          const presetId = e.target.value;
+          if (!presetId) return;
+          const preset = Array.isArray(EXPORT_PRESETS)
+            ? EXPORT_PRESETS.find(item => item.id === presetId)
+            : null;
+          if (!preset) return;
+          this.state.dispatch(actions.updateExportSettings({ ...preset.settings }));
+          this.updateStatus(`Applied preset: ${preset.label}`);
+          this.renderPropertiesPanel(this.state.getState());
+        });
+      }
 
       const exportBindings = [
         ['project-fps', value => ({ fps: value })],

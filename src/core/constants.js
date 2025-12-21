@@ -38,11 +38,68 @@ export const COLORS = {
 };
 
 // Export settings
-export const EXPORT_PRESETS = {
-  '1080p': { width: 1920, height: 1080, fps: 30, bitrate: 5000000 },
-  '720p': { width: 1280, height: 720, fps: 30, bitrate: 3000000 },
-  '480p': { width: 854, height: 480, fps: 30, bitrate: 1500000 },
-};
+export const EXPORT_PRESETS = [
+  {
+    id: 'universal-h264',
+    label: 'Universal (H.264)',
+    settings: {
+      resolution: 'auto',
+      fps: 30,
+      videoCodec: 'libx264',
+      videoBitrate: '',
+      crf: 23,
+      preset: 'medium',
+      audioCodec: 'aac',
+      audioBitrate: '192k',
+      sampleRate: 44100,
+    },
+  },
+  {
+    id: 'small-share',
+    label: 'Small Share (720p)',
+    settings: {
+      resolution: { width: 1280, height: 720 },
+      fps: 30,
+      videoCodec: 'libx264',
+      videoBitrate: '',
+      crf: 28,
+      preset: 'veryfast',
+      audioCodec: 'aac',
+      audioBitrate: '96k',
+      sampleRate: 44100,
+    },
+  },
+  {
+    id: 'youtube-1080p',
+    label: 'YouTube 1080p',
+    settings: {
+      resolution: { width: 1920, height: 1080 },
+      fps: 30,
+      videoCodec: 'libx264',
+      videoBitrate: '',
+      crf: 20,
+      preset: 'slow',
+      audioCodec: 'aac',
+      audioBitrate: '192k',
+      sampleRate: 48000,
+    },
+  },
+  {
+    id: 'youtube-4k',
+    label: 'YouTube 4K (H.265)',
+    settings: {
+      resolution: { width: 3840, height: 2160 },
+      fps: 30,
+      videoCodec: 'libx265',
+      videoBitrate: '',
+      crf: 20,
+      preset: 'slow',
+      audioCodec: 'aac',
+      audioBitrate: '256k',
+      sampleRate: 48000,
+    },
+  },
+];
 
 // Keyboard shortcuts
 export const SHORTCUTS = {
