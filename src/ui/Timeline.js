@@ -271,6 +271,8 @@ export class Timeline {
           originalStart: clickedClip.start,
           originalDuration: clickedClip.duration,
           originalTrimStart: clickedClip.trimStart,
+          snapBoundariesByTrack: this.buildSnapBoundaries(state, new Set([clickedClip.id])),
+          snapThreshold: this.getSnapThreshold(state),
           historySnapshot: this.state.getState(),
           didUpdate: false,
         };
@@ -315,6 +317,8 @@ export class Timeline {
         originalTrackId: clickedClip.trackId,
         selectedClips,
         minStart,
+        snapBoundariesByTrack: this.buildSnapBoundaries(state, new Set(activeSelection)),
+        snapThreshold: this.getSnapThreshold(state),
         historySnapshot: this.state.getState(),
         didUpdate: false,
       };
@@ -361,6 +365,16 @@ export class Timeline {
         adjustedDeltaTime = -this.dragState.minStart;
       }
 
+      if (Math.abs(deltaTime) > 0.001) {
+        const snapDelta = this.getMoveSnapDelta(state, this.dragState, adjustedDeltaTime, deltaTrack);
+        if (snapDelta !== 0) {
+          adjustedDeltaTime += snapDelta;
+          if (this.dragState.minStart + adjustedDeltaTime < 0) {
+            adjustedDeltaTime = -this.dragState.minStart;
+          }
+        }
+      }
+
       if (adjustedDeltaTime === 0 && deltaTrack === 0) {
         return;
       }
@@ -385,9 +399,25 @@ export class Timeline {
 
       if (this.dragState.handle === 'left') {
         // Resize from left (adjust start and trim)
-        const newStart = Math.max(0, this.dragState.originalStart + deltaTime);
-        const newTrimStart = this.dragState.originalTrimStart + deltaTime;
-        const newDuration = this.dragState.originalDuration - deltaTime;
+        let adjustedDeltaTime = deltaTime;
+        if (Math.abs(deltaTime) > 0.001) {
+          const snapDelta = this.getResizeSnapDelta(state, this.dragState, adjustedDeltaTime, 'start');
+          if (snapDelta !== 0) {
+            const snappedDelta = adjustedDeltaTime + snapDelta;
+            const clampedSnapped = Math.max(snappedDelta, -this.dragState.originalStart);
+            const snappedDuration = this.dragState.originalDuration - clampedSnapped;
+            const snappedTrimStart = this.dragState.originalTrimStart + clampedSnapped;
+            if (snappedDuration > 100 && snappedTrimStart >= 0) {
+              adjustedDeltaTime = clampedSnapped;
+            }
+          }
+        }
+        if (this.dragState.originalStart + adjustedDeltaTime < 0) {
+          adjustedDeltaTime = -this.dragState.originalStart;
+        }
+        const newStart = Math.max(0, this.dragState.originalStart + adjustedDeltaTime);
+        const newTrimStart = this.dragState.originalTrimStart + adjustedDeltaTime;
+        const newDuration = this.dragState.originalDuration - adjustedDeltaTime;
 
         if (newDuration > 100 && newTrimStart >= 0) { // Min duration 100ms
           this.state.dispatch(actions.updateClip(clip.id, {
@@ -400,7 +430,18 @@ export class Timeline {
 
       } else if (this.dragState.handle === 'right') {
         // Resize from right (adjust duration)
-        const newDuration = Math.max(100, this.dragState.originalDuration + deltaTime);
+        let adjustedDeltaTime = deltaTime;
+        if (Math.abs(deltaTime) > 0.001) {
+          const snapDelta = this.getResizeSnapDelta(state, this.dragState, adjustedDeltaTime, 'end');
+          if (snapDelta !== 0) {
+            const snappedDelta = adjustedDeltaTime + snapDelta;
+            const snappedDuration = this.dragState.originalDuration + snappedDelta;
+            if (snappedDuration >= 100) {
+              adjustedDeltaTime = snappedDelta;
+            }
+          }
+        }
+        const newDuration = Math.max(100, this.dragState.originalDuration + adjustedDeltaTime);
 
         if (newDuration !== clip.duration) {
           this.state.dispatch(actions.updateClip(clip.id, {
@@ -503,6 +544,115 @@ export class Timeline {
       time >= clip.start &&
       time < clip.start + clip.duration
     ) || null;
+  }
+
+  /**
+   * Get snapping threshold in milliseconds based on export FPS
+   * @param {import('../core/types.js').EditorState} state
+   * @returns {number}
+   */
+  getSnapThreshold(state) {
+    const fps = state.exportSettings && state.exportSettings.fps ? state.exportSettings.fps : 30;
+    const threshold = (1000 / fps) * 1.5;
+    return Math.min(100, Math.max(10, threshold));
+  }
+
+  /**
+   * Build snap boundary lists per track index
+   * @param {import('../core/types.js').EditorState} state
+   * @param {Set<string>} excludedIds
+   * @returns {number[][]}
+   */
+  buildSnapBoundaries(state, excludedIds) {
+    const boundariesByTrack = state.tracks.map(() => [0]);
+    state.clips.forEach((clip) => {
+      if (excludedIds.has(clip.id)) return;
+      const trackIndex = clip.trackId;
+      if (trackIndex < 0 || trackIndex >= boundariesByTrack.length) return;
+      boundariesByTrack[trackIndex].push(clip.start, clip.start + clip.duration);
+    });
+    return boundariesByTrack;
+  }
+
+  /**
+   * Find snap delta for a time given a boundary list
+   * @param {number} time
+   * @param {number[]} boundaries
+   * @param {number} threshold
+   * @returns {number}
+   */
+  findSnapDelta(time, boundaries, threshold) {
+    let bestDelta = 0;
+    let bestAbs = threshold + 1;
+    boundaries.forEach((boundary) => {
+      const delta = boundary - time;
+      const absDelta = Math.abs(delta);
+      if (absDelta > 0 && absDelta <= threshold && absDelta < bestAbs) {
+        bestAbs = absDelta;
+        bestDelta = delta;
+      }
+    });
+    return bestDelta;
+  }
+
+  /**
+   * Compute snap delta for moving selected clips
+   * @param {import('../core/types.js').EditorState} state
+   * @param {object} dragState
+   * @param {number} deltaTime
+   * @param {number} deltaTrack
+   * @returns {number}
+   */
+  getMoveSnapDelta(state, dragState, deltaTime, deltaTrack) {
+    const threshold = dragState.snapThreshold || this.getSnapThreshold(state);
+    if (!threshold) return 0;
+    const boundariesByTrack = dragState.snapBoundariesByTrack || [];
+    let bestDelta = 0;
+    let bestAbs = threshold + 1;
+
+    (dragState.selectedClips || []).forEach((selected) => {
+      const clip = state.clips.find(c => c.id === selected.id);
+      if (!clip) return;
+      const targetTrackId = Math.max(
+        0,
+        Math.min(state.tracks.length - 1, selected.originalTrackId + deltaTrack)
+      );
+      const boundaries = boundariesByTrack[targetTrackId];
+      if (!boundaries || boundaries.length === 0) return;
+      const newStart = selected.originalStart + deltaTime;
+      const newEnd = newStart + clip.duration;
+      [newStart, newEnd].forEach((edge) => {
+        const delta = this.findSnapDelta(edge, boundaries, threshold);
+        const absDelta = Math.abs(delta);
+        if (delta !== 0 && absDelta < bestAbs) {
+          bestAbs = absDelta;
+          bestDelta = delta;
+        }
+      });
+    });
+
+    return bestDelta;
+  }
+
+  /**
+   * Compute snap delta for resizing a clip
+   * @param {import('../core/types.js').EditorState} state
+   * @param {object} dragState
+   * @param {number} deltaTime
+   * @param {'start'|'end'} edge
+   * @returns {number}
+   */
+  getResizeSnapDelta(state, dragState, deltaTime, edge) {
+    const threshold = dragState.snapThreshold || this.getSnapThreshold(state);
+    if (!threshold) return 0;
+    const boundariesByTrack = dragState.snapBoundariesByTrack || [];
+    const trackId = dragState.clip.trackId;
+    const boundaries = boundariesByTrack[trackId];
+    if (!boundaries || boundaries.length === 0) return 0;
+    const edgeTime = edge === 'start'
+      ? dragState.originalStart + deltaTime
+      : dragState.originalStart + dragState.originalDuration + deltaTime;
+    return this.findSnapDelta(edgeTime, boundaries, threshold);
   }
 
   /**
