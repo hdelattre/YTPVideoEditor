@@ -206,37 +206,98 @@ class YTPEditor {
       // Get video metadata
       const metadata = await this.getVideoMetadata(file);
 
-      // Add to media library
-      const mediaId = crypto.randomUUID();
-      this.state.dispatch(actions.addMedia({
-        id: mediaId,
-        hash: mediaId, // For now, use ID as hash
-        name: file.name,
-        type: file.type,
-        size: file.size,
-        duration: metadata.duration,
-        width: metadata.width,
-        height: metadata.height,
-        uploadedAt: Date.now(),
-      }));
-
-      // Store file reference (in a simple map for now, IndexedDB later)
       if (!this.mediaFiles) this.mediaFiles = new Map();
-      this.mediaFiles.set(mediaId, file);
       const isAudioOnly = file.type.startsWith('audio/');
       const isVideoType = file.type.startsWith('video/');
-      this.mediaInfo.set(mediaId, {
-        hasAudio: metadata.hasAudio,
-        hasVideo: metadata.hasVideo,
-        isAudioOnly,
-        isVideoType,
-      });
 
-      this.updateStatus(`Loaded ${file.name}`);
+      const missingMatch = this.findMissingMediaMatch(file, metadata);
+      if (missingMatch) {
+        const mediaId = missingMatch.id;
+        this.mediaFiles.set(mediaId, file);
+        this.mediaInfo.set(mediaId, {
+          hasAudio: metadata.hasAudio,
+          hasVideo: metadata.hasVideo,
+          isAudioOnly,
+          isVideoType,
+        });
+        this.state.dispatch(actions.updateMedia(mediaId, {
+          name: file.name,
+          type: file.type,
+          size: file.size,
+          duration: metadata.duration,
+          width: metadata.width,
+          height: metadata.height,
+        }));
+        this.updateStatus(`Relinked ${file.name}`);
+      } else {
+        // Add to media library
+        const mediaId = crypto.randomUUID();
+        this.state.dispatch(actions.addMedia({
+          id: mediaId,
+          hash: mediaId, // For now, use ID as hash
+          name: file.name,
+          type: file.type,
+          size: file.size,
+          duration: metadata.duration,
+          width: metadata.width,
+          height: metadata.height,
+          uploadedAt: Date.now(),
+        }));
+
+        // Store file reference (in a simple map for now, IndexedDB later)
+        this.mediaFiles.set(mediaId, file);
+        this.mediaInfo.set(mediaId, {
+          hasAudio: metadata.hasAudio,
+          hasVideo: metadata.hasVideo,
+          isAudioOnly,
+          isVideoType,
+        });
+
+        this.updateStatus(`Loaded ${file.name}`);
+      }
     }
 
     // Clear file input
     e.target.value = '';
+  }
+
+  /**
+   * Find a missing media entry that matches an uploaded file
+   * @param {File} file
+   * @param {{duration: number, width: number, height: number}} metadata
+   * @returns {import('./core/types.js').Media|null}
+   */
+  findMissingMediaMatch(file, metadata) {
+    const state = this.state.getState();
+    if (!state.mediaLibrary || state.mediaLibrary.length === 0) return null;
+
+    let best = null;
+    let bestScore = -1;
+
+    state.mediaLibrary.forEach((media) => {
+      if (this.mediaFiles && this.mediaFiles.has(media.id)) return;
+      if (media.name !== file.name) return;
+
+      const sizeMatch = media.size === file.size;
+      const durationMatch = media.duration && metadata.duration
+        ? Math.abs(media.duration - metadata.duration) < 100
+        : false;
+      if (!sizeMatch && !durationMatch) return;
+
+      let score = 3;
+      if (sizeMatch) score += 2;
+      if (durationMatch) score += 1;
+      if (media.type && media.type === file.type) score += 1;
+      if (media.width && metadata.width && media.width === metadata.width) score += 1;
+      if (media.height && metadata.height && media.height === metadata.height) score += 1;
+
+      if (score > bestScore) {
+        bestScore = score;
+        best = media;
+      }
+    });
+
+    return best;
   }
 
   /**
