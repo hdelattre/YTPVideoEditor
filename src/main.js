@@ -512,6 +512,8 @@ class YTPEditor {
       const signature = [
         clip.id,
         clip.name,
+        clip.duration,
+        clip.trimStart,
         clip.speed,
         clip.volume,
         clip.muted,
@@ -1805,16 +1807,12 @@ class YTPEditor {
       transcriptResults.addEventListener('click', (e) => {
         const button = e.target.closest('.transcript-result');
         if (!button) return;
-        const storedClipTime = Number(button.dataset.clipTime);
         const storedSourceTime = Number(button.dataset.sourceTime);
-        if (!Number.isFinite(storedClipTime)) return;
+        if (!Number.isFinite(storedSourceTime)) return;
         const currentClip = this.state.getState().clips.find(c => c.id === clip.id);
         const resolvedClip = currentClip || clip;
-        let time = storedClipTime;
-        if (Number.isFinite(storedSourceTime)) {
-          const range = this.getClipSourceRange(resolvedClip);
-          time = this.mapSourceTimeToClipTime(resolvedClip, storedSourceTime, range);
-        }
+        const range = this.getClipSourceRange(resolvedClip);
+        const time = this.mapSourceTimeToClipTime(resolvedClip, storedSourceTime, range);
         this.timeline.scrollToTime(time);
         this.state.dispatch(actions.setPlayhead(time), false);
       });
@@ -2890,8 +2888,7 @@ class YTPEditor {
       if (!cue || !Number.isFinite(cue.start) || !Number.isFinite(cue.end)) return;
       if (cue.end <= range.start || cue.start >= range.end) return;
       if (search && (!cue.text || !cue.text.toLowerCase().includes(search))) return;
-      const clipTime = this.mapSourceTimeToClipTime(clip, cue.start, range);
-      matches.push({ clipTime, sourceTime: cue.start, text: cue.text || '' });
+      matches.push({ sourceTime: cue.start, text: cue.text || '' });
     });
 
     if (matches.length === 0) {
@@ -2910,8 +2907,8 @@ class YTPEditor {
     const visible = matches.slice(startIndex, endIndex);
     container.innerHTML = visible.map((item) => (
       `<button type="button" class="transcript-result"
-        data-clip-time="${item.clipTime}" data-source-time="${item.sourceTime}">
-        <span class="transcript-time">${formatTime(item.clipTime)}</span>
+        data-source-time="${item.sourceTime}">
+        <span class="transcript-time">${formatTime(item.sourceTime)}</span>
         <span class="transcript-text">${this.escapeHtml(item.text)}</span>
       </button>`
     )).join('');

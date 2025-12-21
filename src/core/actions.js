@@ -20,7 +20,6 @@ export function addClip(clip) {
       start: clip.start,
       duration: clip.duration,
       trimStart: clip.trimStart || 0,
-      trimEnd: clip.trimEnd || 0,
       color: clip.color || DEFAULT_CLIP_COLOR,
       transform: clip.transform,
       waveformData: clip.waveformData,
@@ -544,7 +543,7 @@ export function setClipSpeed(clipId, speed) {
     if (clip) {
       clip.speed = Math.max(0.25, Math.min(4.0, speed));
       // Adjust duration based on speed
-      clip.duration = (clip.trimEnd || clip.duration) / clip.speed;
+      clip.duration = clip.duration / clip.speed;
     }
     return state;
   };
@@ -562,7 +561,7 @@ export function setClipsSpeed(clipIds, speed) {
     state.clips.forEach(clip => {
       if (idSet.has(clip.id)) {
         clip.speed = Math.max(0.25, Math.min(4.0, speed));
-        clip.duration = (clip.trimEnd || clip.duration) / clip.speed;
+        clip.duration = clip.duration / clip.speed;
       }
     });
     return state;

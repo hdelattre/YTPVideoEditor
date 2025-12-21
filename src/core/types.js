@@ -12,7 +12,6 @@
  * @property {number} start - Start time on timeline (ms)
  * @property {number} duration - Duration of clip (ms)
  * @property {number} trimStart - Trim from beginning of source (ms)
- * @property {number} trimEnd - Trim from end of source (ms)
  * @property {string} color - Display color
  * @property {ClipTransform} [transform] - Position/scale/rotation
  * @property {Float32Array} [waveformData] - Audio waveform data
