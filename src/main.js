@@ -11,6 +11,7 @@ import { formatTime } from './utils/time.js';
 import { setupRangeVisuals } from './ui/rangeVisuals.js';
 import { PropertiesPanel } from './ui/properties.js';
 import { buildFfmpegExportCommand } from './export/ffmpeg.js';
+import { MediaManager } from './media/MediaManager.js';
 import {
   MIN_ZOOM,
   MAX_ZOOM,
@@ -56,6 +57,7 @@ class YTPEditor {
     // Initialize UI components
     this.initializeUI();
     this.propertiesPanel = new PropertiesPanel(this);
+    this.mediaManager = new MediaManager(this);
 
     // Setup event listeners
     this.setupEventListeners();
@@ -126,7 +128,7 @@ class YTPEditor {
     const fileInput = document.getElementById('fileInput');
 
     uploadBtn.addEventListener('click', () => fileInput.click());
-    fileInput.addEventListener('change', (e) => this.handleFileUpload(e));
+    fileInput.addEventListener('change', (e) => this.mediaManager.handleFileUpload(e));
 
     // Playback controls
     document.getElementById('playBtn').addEventListener('click', () => this.play());
@@ -232,7 +234,7 @@ class YTPEditor {
     }
 
     if (this.reassociateInput) {
-      this.reassociateInput.addEventListener('change', (e) => this.handleReassociateFile(e));
+      this.reassociateInput.addEventListener('change', (e) => this.mediaManager.handleReassociateFile(e));
     }
 
     // Volume control
@@ -257,162 +259,6 @@ class YTPEditor {
     };
     document.addEventListener('pointerdown', resumeAudio);
     document.addEventListener('keydown', resumeAudio);
-  }
-
-  /**
-   * Handle file upload
-   * @param {Event} e
-   */
-  async handleFileUpload(e) {
-    const files = Array.from(e.target.files);
-
-    for (const file of files) {
-      this.updateStatus(`Loading ${file.name}...`);
-
-      // Get video metadata
-      const metadata = await this.getVideoMetadata(file);
-
-      if (!this.mediaFiles) this.mediaFiles = new Map();
-      const isAudioOnly = file.type.startsWith('audio/');
-      const isVideoType = file.type.startsWith('video/');
-
-      const missingMatch = this.findMissingMediaMatch(file, metadata);
-      if (missingMatch) {
-        const mediaId = missingMatch.id;
-        this.mediaFiles.set(mediaId, file);
-        this.mediaInfo.set(mediaId, {
-          hasAudio: metadata.hasAudio,
-          hasVideo: metadata.hasVideo,
-          isAudioOnly,
-          isVideoType,
-        });
-        this.state.dispatch(actions.updateMedia(mediaId, {
-          name: file.name,
-          type: file.type,
-          size: file.size,
-          duration: metadata.duration,
-          width: metadata.width,
-          height: metadata.height,
-        }));
-        this.updateStatus(`Relinked ${file.name}`);
-      } else {
-        // Add to media library
-        const mediaId = crypto.randomUUID();
-        // Ensure render sees the file as present on the first state update.
-        this.mediaFiles.set(mediaId, file);
-        this.mediaInfo.set(mediaId, {
-          hasAudio: metadata.hasAudio,
-          hasVideo: metadata.hasVideo,
-          isAudioOnly,
-          isVideoType,
-        });
-        this.state.dispatch(actions.addMedia({
-          id: mediaId,
-          hash: mediaId, // For now, use ID as hash
-          name: file.name,
-          type: file.type,
-          size: file.size,
-          duration: metadata.duration,
-          width: metadata.width,
-          height: metadata.height,
-          uploadedAt: Date.now(),
-        }));
-
-        this.updateStatus(`Loaded ${file.name}`);
-      }
-    }
-
-    // Clear file input
-    e.target.value = '';
-  }
-
-  /**
-   * Find a missing media entry that matches an uploaded file
-   * @param {File} file
-   * @param {{duration: number, width: number, height: number}} metadata
-   * @returns {import('./core/types.js').Media|null}
-   */
-  findMissingMediaMatch(file, metadata) {
-    const state = this.state.getState();
-    if (!state.mediaLibrary || state.mediaLibrary.length === 0) return null;
-
-    let best = null;
-    let bestScore = -1;
-
-    state.mediaLibrary.forEach((media) => {
-      if (this.mediaFiles && this.mediaFiles.has(media.id)) return;
-      if (media.name !== file.name) return;
-
-      const sizeMatch = media.size === file.size;
-      const durationMatch = media.duration && metadata.duration
-        ? Math.abs(media.duration - metadata.duration) < 100
-        : false;
-      if (!sizeMatch && !durationMatch) return;
-
-      let score = 3;
-      if (sizeMatch) score += 2;
-      if (durationMatch) score += 1;
-      if (media.type && media.type === file.type) score += 1;
-      if (media.width && metadata.width && media.width === metadata.width) score += 1;
-      if (media.height && metadata.height && media.height === metadata.height) score += 1;
-
-      if (score > bestScore) {
-        bestScore = score;
-        best = media;
-      }
-    });
-
-    return best;
-  }
-
-  /**
-   * Get video metadata
-   * @param {File} file
-   * @returns {Promise<{duration: number, width: number, height: number, hasAudio: boolean|null, hasVideo: boolean}>}
-   */
-  async getVideoMetadata(file) {
-    return new Promise((resolve) => {
-      const video = document.createElement('video');
-      video.preload = 'metadata';
-      const isAudioOnly = file.type.startsWith('audio/');
-      const isVideoType = file.type.startsWith('video/');
-
-      video.onloadedmetadata = () => {
-        let hasAudio = null;
-        if (isAudioOnly) {
-          hasAudio = true;
-        } else if (typeof video.mozHasAudio === 'boolean') {
-          hasAudio = video.mozHasAudio;
-        } else if (video.audioTracks && video.audioTracks.length > 0) {
-          hasAudio = true;
-        }
-
-        const hasVideo = isVideoType || (!isAudioOnly && video.videoWidth > 0 && video.videoHeight > 0);
-
-        resolve({
-          duration: video.duration * 1000, // Convert to ms
-          width: video.videoWidth,
-          height: video.videoHeight,
-          hasAudio,
-          hasVideo,
-        });
-        URL.revokeObjectURL(video.src);
-      };
-
-      video.onerror = () => {
-        // If video fails to load, return defaults
-        resolve({
-          duration: 0,
-          width: 1920,
-          height: 1080,
-          hasAudio: isAudioOnly ? true : null,
-          hasVideo: isVideoType || !isAudioOnly,
-        });
-        URL.revokeObjectURL(video.src);
-      };
-
-      video.src = URL.createObjectURL(file);
-    });
   }
 
   /**
@@ -465,7 +311,7 @@ class YTPEditor {
     document.getElementById('exportBtn').disabled = state.clips.length === 0;
 
     // Update media library UI
-    this.renderMediaLibrary(state);
+    this.mediaManager.renderMediaLibrary(state);
 
     // Update properties panel only when selected clip changes or when not actively editing
     const { signature: selectedSignature } = this.getSelectedClipSignature(state);
@@ -692,149 +538,6 @@ class YTPEditor {
       return clip.audioFilters.volume;
     }
     return defaults.audio.volume !== undefined ? defaults.audio.volume : 1;
-  }
-
-  /**
-   * Render media library
-   * @param {import('./core/types.js').EditorState} state
-   */
-  renderMediaLibrary(state) {
-    const mediaList = document.getElementById('mediaList');
-    mediaList.innerHTML = '';
-
-    if (state.mediaLibrary.length === 0) {
-      mediaList.innerHTML = '<p class="empty-message">No media files yet</p>';
-      return;
-    }
-
-    state.mediaLibrary.forEach(media => {
-      const isMissing = !this.mediaFiles || !this.mediaFiles.has(media.id);
-      const item = document.createElement('div');
-      item.className = `media-item${isMissing ? ' missing' : ''}`;
-      item.draggable = !isMissing;
-      if (isMissing) {
-        item.title = 'File missing - click to relink';
-      }
-
-      const header = document.createElement('div');
-      header.className = 'media-item-header';
-
-      const name = document.createElement('div');
-      name.className = 'media-item-name';
-      name.textContent = media.name;
-      header.appendChild(name);
-
-      if (isMissing) {
-        const badge = document.createElement('span');
-        badge.className = 'media-item-missing';
-        badge.textContent = 'Missing';
-        header.appendChild(badge);
-      }
-
-      const info = document.createElement('div');
-      info.className = 'media-item-info';
-      const durationSec = Math.round(media.duration / 1000);
-      const sizeMB = (media.size / 1024 / 1024).toFixed(2);
-      info.textContent = `${durationSec}s · ${media.width}x${media.height} · ${sizeMB}MB`;
-
-      item.appendChild(header);
-      item.appendChild(info);
-
-      // Double-click to add to timeline
-      if (!isMissing) {
-        item.addEventListener('dblclick', () => {
-          this.addMediaToTimeline(media);
-        });
-      }
-
-      if (isMissing) {
-        item.addEventListener('click', () => {
-          this.requestMediaReassociate(media);
-        });
-      }
-
-      // Drag and drop support
-      if (!isMissing) {
-        item.addEventListener('dragstart', (e) => {
-          e.dataTransfer.setData('mediaId', media.id);
-          e.dataTransfer.effectAllowed = 'copy';
-        });
-      }
-
-      mediaList.appendChild(item);
-    });
-  }
-
-  /**
-   * Prompt user to relink missing media
-   * @param {import('./core/types.js').Media} media
-   */
-  requestMediaReassociate(media) {
-    if (!this.reassociateInput) return;
-    this.pendingReassociateMediaId = media.id;
-    this.reassociateInput.value = '';
-    this.reassociateInput.click();
-  }
-
-  /**
-   * Handle relinked media file selection
-   * @param {Event} e
-   */
-  async handleReassociateFile(e) {
-    const file = e.target.files && e.target.files[0];
-    const mediaId = this.pendingReassociateMediaId;
-    this.pendingReassociateMediaId = null;
-
-    if (!file || !mediaId) {
-      return;
-    }
-
-    this.updateStatus(`Relinking ${file.name}...`);
-    const metadata = await this.getVideoMetadata(file);
-
-    if (!this.mediaFiles) this.mediaFiles = new Map();
-    this.mediaFiles.set(mediaId, file);
-
-    const isAudioOnly = file.type.startsWith('audio/');
-    const isVideoType = file.type.startsWith('video/');
-    this.mediaInfo.set(mediaId, {
-      hasAudio: metadata.hasAudio,
-      hasVideo: metadata.hasVideo,
-      isAudioOnly,
-      isVideoType,
-    });
-
-    this.state.dispatch(actions.updateMedia(mediaId, {
-      name: file.name,
-      type: file.type,
-      size: file.size,
-      duration: metadata.duration,
-      width: metadata.width,
-      height: metadata.height,
-    }));
-
-    this.updateStatus(`Relinked ${file.name}`);
-    e.target.value = '';
-  }
-
-  /**
-   * Add media to timeline
-   * @param {import('./core/types.js').Media} media
-   */
-  addMediaToTimeline(media) {
-    const state = this.state.getState();
-
-    // Add clip at playhead position on first track
-    this.state.dispatch(actions.addClip({
-      name: media.name,
-      mediaId: media.id,
-      trackId: 0,
-      start: state.playhead,
-      duration: media.duration,
-      color: '#4a9eff',
-    }));
-
-    this.updateStatus(`Added ${media.name} to timeline`);
   }
 
   /**
