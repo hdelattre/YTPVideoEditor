@@ -5,6 +5,7 @@
 import * as actions from '../core/actions.js';
 import { EXPORT_PRESETS, createDefaultFilters } from '../core/constants.js';
 import { formatSeconds } from '../utils/format.js';
+import { getExportResolution } from '../export/ffmpeg.js';
 import { getClipSourceRange, mapSourceTimeToClipTime } from '../utils/clipTiming.js';
 import { decoratePropertySliders } from './rangeVisuals.js';
 import { parseWhisperTranscript, renderTranscriptResults } from './transcript.js';
@@ -45,7 +46,7 @@ export class PropertiesPanel {
       const baseDefaults = createDefaultFilters();
       const resolutionIsAuto = exportSettings.resolution === 'auto';
       const resolvedResolution = resolutionIsAuto
-        ? editor.getExportResolution(state)
+        ? getExportResolution(state)
         : exportSettings.resolution;
       const widthValue = resolvedResolution && resolvedResolution.width ? resolvedResolution.width : 1280;
       const heightValue = resolvedResolution && resolvedResolution.height ? resolvedResolution.height : 720;
