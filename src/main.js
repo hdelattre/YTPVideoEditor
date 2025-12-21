@@ -3234,12 +3234,14 @@ class YTPEditor {
       const isReversed = topmostVideoClip.reversed === true;
       const clipChanged = this.lastPreviewVideoClipId !== topmostVideoClip.id;
       const shouldSeek = shouldResync || clipChanged || (!isReversed && video.paused);
+      const targetRate = Math.max(0.25, Math.min(4, topmostVideoClip.speed || 1));
 
       video.volume = 0;
       video.muted = true;
 
       if (state.isPlaying) {
         if (isReversed) {
+          video.playbackRate = 1;
           if (!video.paused) {
             video.pause();
           }
@@ -3266,6 +3268,7 @@ class YTPEditor {
             this.lastReverseVideoClipTime = clipTime;
           }
         } else {
+          video.playbackRate = targetRate;
           if (shouldSeek) {
             video.currentTime = clipTime;
           }
@@ -3277,6 +3280,7 @@ class YTPEditor {
         if (!video.paused) {
           video.pause();
         }
+        video.playbackRate = 1;
         const timeDiff = Math.abs(video.currentTime - clipTime);
         if (timeDiff > 0.05) {
           const now = Date.now();

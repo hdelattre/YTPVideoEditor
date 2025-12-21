@@ -541,9 +541,11 @@ export function setClipSpeed(clipId, speed) {
   return (state) => {
     const clip = state.clips.find(c => c.id === clipId);
     if (clip) {
+      const previousSpeed = clip.speed || DEFAULT_SPEED;
+      const sourceDuration = clip.duration * previousSpeed;
       clip.speed = Math.max(0.25, Math.min(4.0, speed));
-      // Adjust duration based on speed
-      clip.duration = clip.duration / clip.speed;
+      // Adjust duration based on speed, preserving the source window
+      clip.duration = sourceDuration / clip.speed;
     }
     return state;
   };
@@ -560,8 +562,10 @@ export function setClipsSpeed(clipIds, speed) {
     const idSet = new Set(clipIds);
     state.clips.forEach(clip => {
       if (idSet.has(clip.id)) {
+        const previousSpeed = clip.speed || DEFAULT_SPEED;
+        const sourceDuration = clip.duration * previousSpeed;
         clip.speed = Math.max(0.25, Math.min(4.0, speed));
-        clip.duration = clip.duration / clip.speed;
+        clip.duration = sourceDuration / clip.speed;
       }
     });
     return state;
