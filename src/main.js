@@ -8,6 +8,9 @@ import { KeyboardManager } from './utils/keyboard.js';
 import { Timeline } from './ui/Timeline.js';
 import * as actions from './core/actions.js';
 import { formatTime } from './utils/time.js';
+import { getClipSourceRange, mapSourceTimeToClipTime } from './utils/clipTiming.js';
+import { escapeHtml, escapeShellArg, formatSeconds } from './utils/format.js';
+import { decoratePropertySliders, setupRangeVisuals } from './ui/rangeVisuals.js';
 import {
   MIN_ZOOM,
   MAX_ZOOM,
@@ -107,7 +110,7 @@ class YTPEditor {
     this.reassociateInput.hidden = true;
     document.body.appendChild(this.reassociateInput);
 
-    this.setupRangeVisuals(document);
+    setupRangeVisuals(document);
 
     // Start preview render loop
     this.renderPreview();
@@ -847,6 +850,15 @@ class YTPEditor {
     const defaultFilters = this.getDefaultFilters(state);
     const exportSettings = this.getExportSettings(state);
 
+    const decorateSliders = () => {
+      decoratePropertySliders(propertiesContent, {
+        escapeHtml,
+        onResetDefaultFilter: (section, key, value) => {
+          this.state.dispatch(actions.updateDefaultFilters(section, { [key]: value }));
+        },
+      });
+    };
+
     if (selectedIds.length === 0) {
       const baseDefaults = createDefaultFilters();
       const resolutionIsAuto = exportSettings.resolution === 'auto';
@@ -861,8 +873,8 @@ class YTPEditor {
       const rangeEndMs = Number.isFinite(exportSettings.rangeEnd)
         ? Math.max(0, exportSettings.rangeEnd)
         : null;
-      const rangeStartValue = this.formatSeconds(rangeStartMs);
-      const rangeEndValue = rangeEndMs !== null ? this.formatSeconds(rangeEndMs) : '';
+      const rangeStartValue = formatSeconds(rangeStartMs);
+      const rangeEndValue = rangeEndMs !== null ? formatSeconds(rangeEndMs) : '';
       const presetMatchId = this.getExportPresetMatch(exportSettings);
       const presetOptions = Array.isArray(EXPORT_PRESETS)
         ? EXPORT_PRESETS.map((preset) => (
@@ -1285,7 +1297,7 @@ class YTPEditor {
         });
       }
 
-      this.decoratePropertySliders(propertiesContent);
+      decorateSliders();
       return;
     }
 
@@ -1402,7 +1414,7 @@ class YTPEditor {
         this.state.dispatch(actions.removeClips(selectedIds));
       });
 
-      this.decoratePropertySliders(propertiesContent);
+      decorateSliders();
       return;
     }
 
@@ -1811,8 +1823,8 @@ class YTPEditor {
         if (!Number.isFinite(storedSourceTime)) return;
         const currentClip = this.state.getState().clips.find(c => c.id === clip.id);
         const resolvedClip = currentClip || clip;
-        const range = this.getClipSourceRange(resolvedClip);
-        const time = this.mapSourceTimeToClipTime(resolvedClip, storedSourceTime, range);
+        const range = getClipSourceRange(resolvedClip);
+        const time = mapSourceTimeToClipTime(resolvedClip, storedSourceTime, range);
         this.timeline.scrollToTime(time);
         this.state.dispatch(actions.setPlayhead(time), false);
       });
@@ -1836,7 +1848,7 @@ class YTPEditor {
       this.state.dispatch(actions.removeClip(clip.id));
     });
 
-    this.decoratePropertySliders(propertiesContent);
+    decorateSliders();
   }
 
   /**
@@ -2445,14 +2457,14 @@ class YTPEditor {
             `[${inputIndex}:v]${videoFilters.join(',')}[${vLabel}]`
           );
         } else {
-          const durationSec = this.formatSeconds(durationMs);
+          const durationSec = formatSeconds(durationMs);
           filterParts.push(
             `color=c=black:s=${width}x${height}:r=${fps}:d=${durationSec},` +
             `format=yuv420p,setsar=1[${vLabel}]`
           );
         }
       } else {
-        const durationSec = this.formatSeconds(durationMs);
+        const durationSec = formatSeconds(durationMs);
         filterParts.push(
           `color=c=black:s=${width}x${height}:r=${fps}:d=${durationSec},` +
           `format=yuv420p,setsar=1[${vLabel}]`
@@ -2537,13 +2549,13 @@ class YTPEditor {
             `[${inputIndex}:a]${audioFilters.join(',')}[${aLabel}]`
           );
         } else {
-          const durationSec = this.formatSeconds(durationMs);
+          const durationSec = formatSeconds(durationMs);
           filterParts.push(
             `anullsrc=channel_layout=stereo:sample_rate=${sampleRate}:d=${durationSec}[${aLabel}]`
           );
         }
       } else {
-        const durationSec = this.formatSeconds(durationMs);
+        const durationSec = formatSeconds(durationMs);
         filterParts.push(
           `anullsrc=channel_layout=stereo:sample_rate=${sampleRate}:d=${durationSec}[${aLabel}]`
         );
@@ -2559,7 +2571,7 @@ class YTPEditor {
     );
 
     const inputs = inputList
-      .map(media => `-i "${this.escapeShellArg(media.name)}"`)
+      .map(media => `-i "${escapeShellArg(media.name)}"`)
       .join(' ');
     const filterComplex = filterParts.join('; ');
     const outputFormat = exportSettings.format || 'mp4';
@@ -2711,159 +2723,6 @@ class YTPEditor {
   }
 
   /**
-   * Format milliseconds as seconds with ffmpeg-friendly precision
-   * @param {number} ms
-   * @returns {string}
-   */
-  formatSeconds(ms) {
-    return (ms / 1000).toFixed(3).replace(/\.?0+$/, '');
-  }
-
-  /**
-   * Escape text for safe HTML rendering
-   * @param {string} value
-   * @returns {string}
-   */
-  escapeHtml(value) {
-    return String(value)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
-  }
-
-  /**
-   * Update a range input's visual fill
-   * @param {HTMLInputElement} input
-   */
-  updateRangeVisual(input) {
-    const min = Number(input.min || 0);
-    const max = Number(input.max || 100);
-    const value = Number(input.value || 0);
-    const percent = max === min ? 0 : ((value - min) / (max - min)) * 100;
-    input.style.setProperty('--range-percent', `${Math.max(0, Math.min(100, percent))}%`);
-  }
-
-  /**
-   * Attach visual updates for range inputs
-   * @param {ParentNode} root
-   */
-  setupRangeVisuals(root = document) {
-    const inputs = root.querySelectorAll('input[type="range"]');
-    inputs.forEach((input) => {
-      this.updateRangeVisual(input);
-      if (input.dataset.rangeVisualBound === 'true') return;
-      input.dataset.rangeVisualBound = 'true';
-      input.addEventListener('input', () => this.updateRangeVisual(input));
-    });
-  }
-
-  /**
-   * Add min/max labels for property sliders
-   * @param {HTMLElement|null} container
-   */
-  decoratePropertySliders(container) {
-    if (!container) return;
-    const sliders = container.querySelectorAll('input.property-slider');
-    sliders.forEach((input) => {
-      this.updateRangeVisual(input);
-      if (!input.dataset.rangeVisualBound) {
-        input.dataset.rangeVisualBound = 'true';
-        input.addEventListener('input', () => this.updateRangeVisual(input));
-      }
-
-      const min = input.min !== '' ? input.min : '0';
-      const max = input.max !== '' ? input.max : '100';
-      const next = input.nextElementSibling;
-      const valueDisplay = next && next.querySelector && next.querySelector('span[id$="-value"]') ? next : null;
-      const insertAfter = valueDisplay || input;
-      const existing = insertAfter.nextElementSibling;
-      if (!existing || !existing.classList.contains('slider-range')) {
-        const rangeEl = document.createElement('div');
-        rangeEl.className = 'slider-range';
-        rangeEl.innerHTML = `<span>${this.escapeHtml(min)}</span><span>${this.escapeHtml(max)}</span>`;
-        insertAfter.insertAdjacentElement('afterend', rangeEl);
-      }
-
-      const section = input.dataset.filterSection;
-      const key = input.dataset.filterKey;
-      const defaultValue = input.dataset.defaultValue;
-      if (!section || !key || defaultValue === undefined) return;
-      if (input.dataset.resetBound === 'true') return;
-
-      const group = input.closest('.property-group');
-      if (!group) return;
-      const label = group.querySelector('.property-label');
-      if (!label) return;
-
-      let labelRow = group.querySelector('.property-label-row');
-      if (!labelRow) {
-        labelRow = document.createElement('div');
-        labelRow.className = 'property-label-row';
-        label.parentNode.insertBefore(labelRow, label);
-        labelRow.appendChild(label);
-      }
-
-      const resetBtn = document.createElement('button');
-      resetBtn.type = 'button';
-      resetBtn.className = 'property-reset';
-      resetBtn.textContent = 'Reset';
-      const labelText = label.textContent.trim() || 'setting';
-      resetBtn.setAttribute('aria-label', `Reset ${labelText}`);
-      resetBtn.addEventListener('click', () => {
-        const value = parseFloat(defaultValue);
-        if (Number.isNaN(value)) return;
-        input.value = String(value);
-        this.updateRangeVisual(input);
-        this.state.dispatch(actions.updateDefaultFilters(section, { [key]: value }));
-      });
-      labelRow.appendChild(resetBtn);
-      input.dataset.resetBound = 'true';
-    });
-  }
-
-  /**
-   * Get source range for a clip in milliseconds
-   * @param {import('./core/types.js').Clip} clip
-   * @returns {{start: number, end: number, speed: number, sourceLength: number}}
-   */
-  getClipSourceRange(clip) {
-    const speed = clip.speed || 1;
-    const trimStart = clip.trimStart || 0;
-    const sourceLength = clip.duration * speed;
-    return {
-      start: trimStart,
-      end: trimStart + sourceLength,
-      speed,
-      sourceLength,
-    };
-  }
-
-  /**
-   * Map a source time to clip timeline time
-   * @param {import('./core/types.js').Clip} clip
-   * @param {number} sourceMs
-   * @param {{start: number, end: number, speed: number, sourceLength: number}} range
-   * @returns {number}
-   */
-  mapSourceTimeToClipTime(clip, sourceMs, range) {
-    const trimStart = range.start;
-    const speed = range.speed;
-    const sourceLength = range.sourceLength;
-    let offset;
-    if (clip.reversed) {
-      offset = (sourceLength - (sourceMs - trimStart)) / speed;
-    } else {
-      offset = (sourceMs - trimStart) / speed;
-    }
-    const clipStart = clip.start;
-    const clipEnd = clip.start + clip.duration;
-    const time = clipStart + offset;
-    return Math.min(clipEnd, Math.max(clipStart, time));
-  }
-
-  /**
    * Render transcript search results for a clip
    * @param {import('./core/types.js').Clip} clip
    * @param {import('./core/types.js').Transcript|null} transcript
@@ -2881,7 +2740,7 @@ class YTPEditor {
     }
 
     const search = query ? query.trim().toLowerCase() : '';
-    const range = this.getClipSourceRange(clip);
+    const range = getClipSourceRange(clip);
     const matches = [];
 
     transcript.cues.forEach((cue) => {
@@ -2909,7 +2768,7 @@ class YTPEditor {
       `<button type="button" class="transcript-result"
         data-source-time="${item.sourceTime}">
         <span class="transcript-time">${formatTime(item.sourceTime)}</span>
-        <span class="transcript-text">${this.escapeHtml(item.text)}</span>
+        <span class="transcript-text">${escapeHtml(item.text)}</span>
       </button>`
     )).join('');
     container.scrollTop = 0;
@@ -2996,16 +2855,16 @@ class YTPEditor {
       const reverseStart = sourceLengthMs - (segmentOffsetMs + durationMs) * clipSpeed;
       const sourceStartMs = trimStart + Math.max(0, reverseStart);
       return {
-        startSec: this.formatSeconds(sourceStartMs),
-        endSec: this.formatSeconds(sourceStartMs + sourceDurationMs),
+        startSec: formatSeconds(sourceStartMs),
+        endSec: formatSeconds(sourceStartMs + sourceDurationMs),
         speed: clipSpeed,
       };
     }
 
     const sourceStartMs = trimStart + segmentOffsetMs * clipSpeed;
     return {
-      startSec: this.formatSeconds(sourceStartMs),
-      endSec: this.formatSeconds(sourceStartMs + sourceDurationMs),
+      startSec: formatSeconds(sourceStartMs),
+      endSec: formatSeconds(sourceStartMs + sourceDurationMs),
       speed: clipSpeed,
     };
   }
@@ -3032,15 +2891,6 @@ class YTPEditor {
       filters.push(`atempo=${value}`);
     }
     return filters;
-  }
-
-  /**
-   * Escape double quotes for shell usage
-   * @param {string} value
-   * @returns {string}
-   */
-  escapeShellArg(value) {
-    return String(value).replace(/"/g, '\\"');
   }
 
   /**
