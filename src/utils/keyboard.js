@@ -37,6 +37,7 @@ export class KeyboardManager {
     // Editing
     this.register(SHORTCUTS.SPLIT, () => this.splitClip());
     this.register(SHORTCUTS.DELETE, () => this.deleteClip());
+    this.register(SHORTCUTS.DELETE_BACKSPACE, () => this.deleteClip());
 
     // Undo/Redo
     this.register(SHORTCUTS.UNDO, () => this.state.undo());

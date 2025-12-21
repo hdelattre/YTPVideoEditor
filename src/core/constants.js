@@ -52,6 +52,7 @@ export const SHORTCUTS = {
   PAUSE: 'k',
   SPLIT: 's',
   DELETE: 'Delete',
+  DELETE_BACKSPACE: 'Backspace',
   UNDO: 'Ctrl+z',
   REDO: 'Ctrl+Shift+z',
   COPY: 'Ctrl+c',
