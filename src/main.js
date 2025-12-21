@@ -105,6 +105,8 @@ class YTPEditor {
     this.reassociateInput.hidden = true;
     document.body.appendChild(this.reassociateInput);
 
+    this.setupRangeVisuals(document);
+
     // Start preview render loop
     this.renderPreview();
   }
@@ -1246,6 +1248,7 @@ class YTPEditor {
         });
       }
 
+      this.decoratePropertySliders(propertiesContent);
       return;
     }
 
@@ -1362,6 +1365,7 @@ class YTPEditor {
         this.state.dispatch(actions.removeClips(selectedIds));
       });
 
+      this.decoratePropertySliders(propertiesContent);
       return;
     }
 
@@ -1758,6 +1762,8 @@ class YTPEditor {
     document.getElementById(`${idPrefix}-delete`).addEventListener('click', () => {
       this.state.dispatch(actions.removeClip(clip.id));
     });
+
+    this.decoratePropertySliders(propertiesContent);
   }
 
   /**
@@ -2766,6 +2772,61 @@ class YTPEditor {
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#39;');
+  }
+
+  /**
+   * Update a range input's visual fill
+   * @param {HTMLInputElement} input
+   */
+  updateRangeVisual(input) {
+    const min = Number(input.min || 0);
+    const max = Number(input.max || 100);
+    const value = Number(input.value || 0);
+    const percent = max === min ? 0 : ((value - min) / (max - min)) * 100;
+    input.style.setProperty('--range-percent', `${Math.max(0, Math.min(100, percent))}%`);
+  }
+
+  /**
+   * Attach visual updates for range inputs
+   * @param {ParentNode} root
+   */
+  setupRangeVisuals(root = document) {
+    const inputs = root.querySelectorAll('input[type="range"]');
+    inputs.forEach((input) => {
+      this.updateRangeVisual(input);
+      if (input.dataset.rangeVisualBound === 'true') return;
+      input.dataset.rangeVisualBound = 'true';
+      input.addEventListener('input', () => this.updateRangeVisual(input));
+    });
+  }
+
+  /**
+   * Add min/max labels for property sliders
+   * @param {HTMLElement|null} container
+   */
+  decoratePropertySliders(container) {
+    if (!container) return;
+    const sliders = container.querySelectorAll('input.property-slider');
+    sliders.forEach((input) => {
+      this.updateRangeVisual(input);
+      if (!input.dataset.rangeVisualBound) {
+        input.dataset.rangeVisualBound = 'true';
+        input.addEventListener('input', () => this.updateRangeVisual(input));
+      }
+
+      const min = input.min !== '' ? input.min : '0';
+      const max = input.max !== '' ? input.max : '100';
+      const next = input.nextElementSibling;
+      const valueDisplay = next && next.querySelector && next.querySelector('span[id$="-value"]') ? next : null;
+      const insertAfter = valueDisplay || input;
+      const existing = insertAfter.nextElementSibling;
+      if (existing && existing.classList.contains('slider-range')) return;
+
+      const rangeEl = document.createElement('div');
+      rangeEl.className = 'slider-range';
+      rangeEl.innerHTML = `<span>${this.escapeHtml(min)}</span><span>${this.escapeHtml(max)}</span>`;
+      insertAfter.insertAdjacentElement('afterend', rangeEl);
+    });
   }
 
   /**
