@@ -32,11 +32,13 @@ class YTPEditor {
     this.lastPreviewVideoClipId = null;
     this.lastPreviewAudioClipId = null;
     this.lastReverseSeekTime = 0;
+    this.lastReverseAudioSeekTime = 0;
+    this.lastReverseVideoClipTime = null;
+    this.lastReverseVideoMediaId = null;
     this.previewFrameBuffer = document.createElement('canvas');
     this.previewFrameCtx = this.previewFrameBuffer.getContext('2d');
     this.hasPreviewFrame = false;
     this.audioContext = null;
-    this.decodedAudio = new Map();
     this.reverseAudioNode = null;
     this.reverseAudioGain = null;
     this.reverseAudioClipId = null;
@@ -245,6 +247,12 @@ class YTPEditor {
         this.showHelp();
       }
     });
+
+    const resumeAudio = () => {
+      this.ensureAudioContext();
+    };
+    document.addEventListener('pointerdown', resumeAudio);
+    document.addEventListener('keydown', resumeAudio);
   }
 
   /**
@@ -413,6 +421,7 @@ class YTPEditor {
     const playheadChanged = state.playhead !== this.lastPlayhead;
     const isPlaybackTick = this.isPlayheadUpdateFromPlayback === true;
     if (state.isPlaying && !wasPlaying) {
+      this.ensureAudioContext();
       this.startPlaybackFromState(state);
     } else if (!state.isPlaying && wasPlaying) {
       this.isPlaybackLoopActive = false;
@@ -1850,6 +1859,7 @@ class YTPEditor {
 
     if (state.isPlaying) return;
 
+    this.ensureAudioContext();
     this.state.dispatch(actions.setPlaying(true), false);
   }
 
@@ -2006,10 +2016,6 @@ class YTPEditor {
         audio.load();
       });
       this.audioElements.clear();
-    }
-
-    if (this.decodedAudio) {
-      this.decodedAudio.clear();
     }
     this.stopReverseAudio();
   }
@@ -2261,65 +2267,6 @@ class YTPEditor {
   }
 
   /**
-   * Decode audio data for a media file (async, cached)
-   * @param {string} mediaId
-   * @param {File} file
-   */
-  ensureDecodedAudio(mediaId, file) {
-    if (!file || !this.decodedAudio) return;
-    const existing = this.decodedAudio.get(mediaId);
-    if (existing && (existing.status === 'loading' || existing.status === 'ready')) {
-      return;
-    }
-
-    const audioContext = this.ensureAudioContext();
-    if (!audioContext) return;
-
-    this.decodedAudio.set(mediaId, { status: 'loading' });
-
-    file.arrayBuffer()
-      .then((buffer) => audioContext.decodeAudioData(buffer))
-      .then((audioBuffer) => {
-        const reversedBuffer = this.reverseAudioBuffer(audioBuffer);
-        this.decodedAudio.set(mediaId, {
-          status: 'ready',
-          buffer: audioBuffer,
-          reversedBuffer,
-        });
-      })
-      .catch((error) => {
-        console.warn('Failed to decode audio for reverse preview:', error);
-        this.decodedAudio.set(mediaId, { status: 'error' });
-      });
-  }
-
-  /**
-   * Create a reversed AudioBuffer
-   * @param {AudioBuffer} buffer
-   * @returns {AudioBuffer}
-   */
-  reverseAudioBuffer(buffer) {
-    const audioContext = this.ensureAudioContext();
-    if (!audioContext) return buffer;
-
-    const reversed = audioContext.createBuffer(
-      buffer.numberOfChannels,
-      buffer.length,
-      buffer.sampleRate
-    );
-
-    for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
-      const input = buffer.getChannelData(channel);
-      const output = reversed.getChannelData(channel);
-      for (let i = 0, j = input.length - 1; i < input.length; i++, j--) {
-        output[i] = input[j];
-      }
-    }
-
-    return reversed;
-  }
-
-  /**
    * Stop reverse audio playback
    */
   stopReverseAudio() {
@@ -2339,58 +2286,6 @@ class YTPEditor {
     }
 
     this.reverseAudioClipId = null;
-  }
-
-  /**
-   * Sync reverse audio playback for a clip
-   * @param {import('./core/types.js').Clip} clip
-   * @param {import('./core/types.js').Media} media
-   * @param {File} file
-   * @param {number} clipTime
-   * @param {boolean} shouldSeek
-   * @param {number} gainValue
-   */
-  syncReverseAudio(clip, media, file, clipTime, shouldSeek, gainValue) {
-    const audioContext = this.ensureAudioContext();
-    if (!audioContext) return;
-
-    this.ensureDecodedAudio(media.id, file);
-    const entry = this.decodedAudio.get(media.id);
-    if (!entry || entry.status !== 'ready' || !entry.reversedBuffer) {
-      return;
-    }
-
-    const buffer = entry.reversedBuffer;
-    const durationSec = clip.duration / 1000;
-    const reverseStart = Math.max(0, buffer.duration - clipTime);
-    const remaining = Math.min(durationSec, buffer.duration - reverseStart);
-
-    if (remaining <= 0) {
-      this.stopReverseAudio();
-      return;
-    }
-
-    const clipChanged = this.reverseAudioClipId !== clip.id;
-    const shouldRestart = shouldSeek || clipChanged || !this.reverseAudioNode;
-
-    if (shouldRestart) {
-      this.stopReverseAudio();
-
-      const source = audioContext.createBufferSource();
-      const gainNode = audioContext.createGain();
-      gainNode.gain.value = gainValue;
-
-      source.buffer = buffer;
-      source.connect(gainNode).connect(audioContext.destination);
-
-      source.start(audioContext.currentTime, reverseStart, remaining);
-
-      this.reverseAudioNode = source;
-      this.reverseAudioGain = gainNode;
-      this.reverseAudioClipId = clip.id;
-    } else if (this.reverseAudioGain) {
-      this.reverseAudioGain.gain.value = gainValue;
-    }
   }
 
   /**
@@ -3278,7 +3173,6 @@ class YTPEditor {
 
     if (topmostAudioClip && audioClipMedia) {
       const audio = getAudioForMedia(audioClipMedia);
-      const audioFile = this.mediaFiles.get(audioClipMedia.id);
       activeAudioMediaIds.add(audioClipMedia.id);
 
       const clipTime = getClipTime(topmostAudioClip);
@@ -3287,32 +3181,25 @@ class YTPEditor {
       const isReversed = topmostAudioClip.reversed === true;
       const targetVolume = isMuted ? 0 : (clipVolume * this.masterVolume);
       const clipChanged = this.lastPreviewAudioClipId !== topmostAudioClip.id;
-      const shouldSeek = shouldResync || clipChanged || audio.paused;
-
+      const shouldSeek = shouldResync || clipChanged || (!isReversed && audio.paused);
       audio.volume = targetVolume;
-      audio.muted = targetVolume === 0 || isReversed;
+      audio.muted = targetVolume === 0;
 
       if (state.isPlaying) {
         if (isReversed) {
-          if (!audio.paused) {
-            audio.pause();
+          this.stopReverseAudio();
+          audio.playbackRate = Math.max(0.25, Math.min(4, topmostAudioClip.speed || 1));
+          if (audio.paused) {
+            audio.play().catch(() => {});
           }
           const timeDiff = Math.abs(audio.currentTime - clipTime);
-          const allowSeek = shouldSeek || (now - this.lastReverseSeekTime > 30 && timeDiff > 0.03);
-          if (allowSeek) {
+          if (shouldSeek || (timeDiff > 0.2 && now - this.lastReverseAudioSeekTime > 120)) {
             audio.currentTime = clipTime;
-            this.lastReverseSeekTime = now;
+            this.lastReverseAudioSeekTime = now;
           }
-          this.syncReverseAudio(
-            topmostAudioClip,
-            audioClipMedia,
-            audioFile,
-            clipTime,
-            shouldSeek,
-            targetVolume
-          );
         } else {
           this.stopReverseAudio();
+          audio.playbackRate = Math.max(0.25, Math.min(4, topmostAudioClip.speed || 1));
           if (shouldSeek) {
             audio.currentTime = clipTime;
           }
@@ -3325,6 +3212,7 @@ class YTPEditor {
         if (!audio.paused) {
           audio.pause();
         }
+        audio.playbackRate = 1;
         const timeDiff = Math.abs(audio.currentTime - clipTime);
         if (timeDiff > 0.05) {
           const now = Date.now();
@@ -3348,7 +3236,7 @@ class YTPEditor {
       const clipTime = getClipTime(topmostVideoClip);
       const isReversed = topmostVideoClip.reversed === true;
       const clipChanged = this.lastPreviewVideoClipId !== topmostVideoClip.id;
-      const shouldSeek = shouldResync || clipChanged || video.paused;
+      const shouldSeek = shouldResync || clipChanged || (!isReversed && video.paused);
 
       video.volume = 0;
       video.muted = true;
@@ -3358,11 +3246,27 @@ class YTPEditor {
           if (!video.paused) {
             video.pause();
           }
-          const timeDiff = Math.abs(video.currentTime - clipTime);
-          const allowSeek = shouldSeek || (now - this.lastReverseSeekTime > 30 && timeDiff > 0.03);
-          if (allowSeek) {
-            video.currentTime = clipTime;
+          const reverseMediaChanged = this.lastReverseVideoMediaId !== videoClipMedia.id;
+          if (clipChanged || reverseMediaChanged) {
+            this.lastReverseSeekTime = 0;
+            this.lastReverseVideoClipTime = null;
+            this.lastReverseVideoMediaId = videoClipMedia.id;
+          }
+          const lastClipTime = Number.isFinite(this.lastReverseVideoClipTime)
+            ? this.lastReverseVideoClipTime
+            : video.currentTime;
+          const timeDiff = Math.abs(lastClipTime - clipTime);
+          const minStep = 0.06;
+          const minInterval = 80;
+          const allowSeek = shouldSeek || reverseMediaChanged
+            || (timeDiff > minStep && now - this.lastReverseSeekTime > minInterval);
+          if (allowSeek && !video.seeking) {
+            const safeClipTime = Number.isFinite(video.duration) && video.duration > 0
+              ? Math.min(Math.max(0, clipTime), Math.max(0, video.duration - 0.001))
+              : clipTime;
+            video.currentTime = safeClipTime;
             this.lastReverseSeekTime = now;
+            this.lastReverseVideoClipTime = clipTime;
           }
         } else {
           if (shouldSeek) {
@@ -3386,7 +3290,7 @@ class YTPEditor {
         }
       }
 
-      if (video.readyState >= video.HAVE_CURRENT_DATA) {
+      if (video.readyState >= video.HAVE_CURRENT_DATA && !video.seeking) {
         const videoAspect = video.videoWidth / video.videoHeight;
         const canvasAspect = width / height;
 
