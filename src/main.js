@@ -286,6 +286,14 @@ class YTPEditor {
       } else {
         // Add to media library
         const mediaId = crypto.randomUUID();
+        // Ensure render sees the file as present on the first state update.
+        this.mediaFiles.set(mediaId, file);
+        this.mediaInfo.set(mediaId, {
+          hasAudio: metadata.hasAudio,
+          hasVideo: metadata.hasVideo,
+          isAudioOnly,
+          isVideoType,
+        });
         this.state.dispatch(actions.addMedia({
           id: mediaId,
           hash: mediaId, // For now, use ID as hash
@@ -297,15 +305,6 @@ class YTPEditor {
           height: metadata.height,
           uploadedAt: Date.now(),
         }));
-
-        // Store file reference (in a simple map for now, IndexedDB later)
-        this.mediaFiles.set(mediaId, file);
-        this.mediaInfo.set(mediaId, {
-          hasAudio: metadata.hasAudio,
-          hasVideo: metadata.hasVideo,
-          isAudioOnly,
-          isVideoType,
-        });
 
         this.updateStatus(`Loaded ${file.name}`);
       }
