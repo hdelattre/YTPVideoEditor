@@ -91,6 +91,33 @@ export class Timeline {
   }
 
   /**
+   * Scroll timeline so a given time is visible (centered by default).
+   * @param {number} timeMs
+   * @param {{center?: boolean}} [options]
+   */
+  scrollToTime(timeMs, options = {}) {
+    const state = this.state.getState();
+    const visibleWidth = this.renderer.width;
+    const maxScroll = this.getMaxScroll(state, visibleWidth);
+    const timeX = timeToPixels(Math.max(0, timeMs), state.zoom);
+    const center = options.center !== false;
+
+    if (center) {
+      this.scrollX = timeX - visibleWidth / 2;
+    } else {
+      const viewStart = this.scrollX;
+      const viewEnd = this.scrollX + visibleWidth;
+      if (timeX < viewStart) {
+        this.scrollX = timeX;
+      } else if (timeX > viewEnd) {
+        this.scrollX = timeX - visibleWidth;
+      }
+    }
+
+    this.scrollX = Math.max(0, Math.min(this.scrollX, maxScroll));
+  }
+
+  /**
    * Setup event listeners for interaction
    */
   setupEventListeners() {

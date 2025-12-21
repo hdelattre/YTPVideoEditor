@@ -1798,6 +1798,7 @@ class YTPEditor {
         if (!button) return;
         const time = Number(button.dataset.clipTime);
         if (!Number.isFinite(time)) return;
+        this.timeline.scrollToTime(time);
         this.state.dispatch(actions.setPlayhead(time), false);
       });
     }
