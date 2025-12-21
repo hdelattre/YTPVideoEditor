@@ -838,6 +838,7 @@ class YTPEditor {
     const exportSettings = this.getExportSettings(state);
 
     if (selectedIds.length === 0) {
+      const baseDefaults = createDefaultFilters();
       const resolutionIsAuto = exportSettings.resolution === 'auto';
       const resolvedResolution = resolutionIsAuto
         ? this.getExportResolution(state)
@@ -966,27 +967,37 @@ class YTPEditor {
         <div class="property-group">
           <label class="property-label" for="project-video-brightness">Brightness</label>
           <input type="range" class="property-slider" id="project-video-brightness"
-                 min="-1" max="1" step="0.05" value="${defaultFilters.video.brightness}">
+                 min="-1" max="1" step="0.05" value="${defaultFilters.video.brightness}"
+                 data-filter-section="video" data-filter-key="brightness"
+                 data-default-value="${baseDefaults.video.brightness}">
         </div>
         <div class="property-group">
           <label class="property-label" for="project-video-contrast">Contrast</label>
           <input type="range" class="property-slider" id="project-video-contrast"
-                 min="0" max="4" step="0.05" value="${defaultFilters.video.contrast}">
+                 min="0" max="4" step="0.05" value="${defaultFilters.video.contrast}"
+                 data-filter-section="video" data-filter-key="contrast"
+                 data-default-value="${baseDefaults.video.contrast}">
         </div>
         <div class="property-group">
           <label class="property-label" for="project-video-saturation">Saturation</label>
           <input type="range" class="property-slider" id="project-video-saturation"
-                 min="0" max="3" step="0.05" value="${defaultFilters.video.saturation}">
+                 min="0" max="3" step="0.05" value="${defaultFilters.video.saturation}"
+                 data-filter-section="video" data-filter-key="saturation"
+                 data-default-value="${baseDefaults.video.saturation}">
         </div>
         <div class="property-group">
           <label class="property-label" for="project-video-hue">Hue</label>
           <input type="range" class="property-slider" id="project-video-hue"
-                 min="-180" max="180" step="1" value="${defaultFilters.video.hue}">
+                 min="-180" max="180" step="1" value="${defaultFilters.video.hue}"
+                 data-filter-section="video" data-filter-key="hue"
+                 data-default-value="${baseDefaults.video.hue}">
         </div>
         <div class="property-group">
           <label class="property-label" for="project-video-gamma">Gamma</label>
           <input type="range" class="property-slider" id="project-video-gamma"
-                 min="0.1" max="10" step="0.1" value="${defaultFilters.video.gamma}">
+                 min="0.1" max="10" step="0.1" value="${defaultFilters.video.gamma}"
+                 data-filter-section="video" data-filter-key="gamma"
+                 data-default-value="${baseDefaults.video.gamma}">
         </div>
         <div class="property-group">
           <label class="property-label" for="project-video-rotate">Rotate</label>
@@ -1010,17 +1021,23 @@ class YTPEditor {
         <div class="property-group">
           <label class="property-label" for="project-video-blur">Blur</label>
           <input type="range" class="property-slider" id="project-video-blur"
-                 min="0" max="10" step="0.5" value="${defaultFilters.video.blur}">
+                 min="0" max="10" step="0.5" value="${defaultFilters.video.blur}"
+                 data-filter-section="video" data-filter-key="blur"
+                 data-default-value="${baseDefaults.video.blur}">
         </div>
         <div class="property-group">
           <label class="property-label" for="project-video-sharpen">Sharpen</label>
           <input type="range" class="property-slider" id="project-video-sharpen"
-                 min="0" max="10" step="0.5" value="${defaultFilters.video.sharpen}">
+                 min="0" max="10" step="0.5" value="${defaultFilters.video.sharpen}"
+                 data-filter-section="video" data-filter-key="sharpen"
+                 data-default-value="${baseDefaults.video.sharpen}">
         </div>
         <div class="property-group">
           <label class="property-label" for="project-video-denoise">Denoise</label>
           <input type="range" class="property-slider" id="project-video-denoise"
-                 min="0" max="10" step="0.5" value="${defaultFilters.video.denoise}">
+                 min="0" max="10" step="0.5" value="${defaultFilters.video.denoise}"
+                 data-filter-section="video" data-filter-key="denoise"
+                 data-default-value="${baseDefaults.video.denoise}">
         </div>
         <div class="property-group">
           <label class="property-label" for="project-video-fade-in">Fade In (s)</label>
@@ -1037,17 +1054,23 @@ class YTPEditor {
         <div class="property-group">
           <label class="property-label" for="project-audio-volume">Volume</label>
           <input type="range" class="property-slider" id="project-audio-volume"
-                 min="0" max="2" step="0.01" value="${defaultFilters.audio.volume}">
+                 min="0" max="2" step="0.01" value="${defaultFilters.audio.volume}"
+                 data-filter-section="audio" data-filter-key="volume"
+                 data-default-value="${baseDefaults.audio.volume}">
         </div>
         <div class="property-group">
           <label class="property-label" for="project-audio-bass">Bass (dB)</label>
           <input type="range" class="property-slider" id="project-audio-bass"
-                 min="-20" max="20" step="1" value="${defaultFilters.audio.bass}">
+                 min="-20" max="20" step="1" value="${defaultFilters.audio.bass}"
+                 data-filter-section="audio" data-filter-key="bass"
+                 data-default-value="${baseDefaults.audio.bass}">
         </div>
         <div class="property-group">
           <label class="property-label" for="project-audio-treble">Treble (dB)</label>
           <input type="range" class="property-slider" id="project-audio-treble"
-                 min="-20" max="20" step="1" value="${defaultFilters.audio.treble}">
+                 min="-20" max="20" step="1" value="${defaultFilters.audio.treble}"
+                 data-filter-section="audio" data-filter-key="treble"
+                 data-default-value="${baseDefaults.audio.treble}">
         </div>
         <div class="property-group">
           <input type="checkbox" class="property-checkbox" id="project-audio-normalize"
@@ -1057,12 +1080,16 @@ class YTPEditor {
         <div class="property-group">
           <label class="property-label" for="project-audio-pan">Pan</label>
           <input type="range" class="property-slider" id="project-audio-pan"
-                 min="-1" max="1" step="0.05" value="${defaultFilters.audio.pan}">
+                 min="-1" max="1" step="0.05" value="${defaultFilters.audio.pan}"
+                 data-filter-section="audio" data-filter-key="pan"
+                 data-default-value="${baseDefaults.audio.pan}">
         </div>
         <div class="property-group">
           <label class="property-label" for="project-audio-pitch">Pitch (semitones)</label>
           <input type="range" class="property-slider" id="project-audio-pitch"
-                 min="-12" max="12" step="1" value="${defaultFilters.audio.pitch}">
+                 min="-12" max="12" step="1" value="${defaultFilters.audio.pitch}"
+                 data-filter-section="audio" data-filter-key="pitch"
+                 data-default-value="${baseDefaults.audio.pitch}">
         </div>
         <div class="property-group">
           <label class="property-label" for="project-audio-fade-in">Fade In (s)</label>
@@ -2851,12 +2878,47 @@ class YTPEditor {
       const valueDisplay = next && next.querySelector && next.querySelector('span[id$="-value"]') ? next : null;
       const insertAfter = valueDisplay || input;
       const existing = insertAfter.nextElementSibling;
-      if (existing && existing.classList.contains('slider-range')) return;
+      if (!existing || !existing.classList.contains('slider-range')) {
+        const rangeEl = document.createElement('div');
+        rangeEl.className = 'slider-range';
+        rangeEl.innerHTML = `<span>${this.escapeHtml(min)}</span><span>${this.escapeHtml(max)}</span>`;
+        insertAfter.insertAdjacentElement('afterend', rangeEl);
+      }
 
-      const rangeEl = document.createElement('div');
-      rangeEl.className = 'slider-range';
-      rangeEl.innerHTML = `<span>${this.escapeHtml(min)}</span><span>${this.escapeHtml(max)}</span>`;
-      insertAfter.insertAdjacentElement('afterend', rangeEl);
+      const section = input.dataset.filterSection;
+      const key = input.dataset.filterKey;
+      const defaultValue = input.dataset.defaultValue;
+      if (!section || !key || defaultValue === undefined) return;
+      if (input.dataset.resetBound === 'true') return;
+
+      const group = input.closest('.property-group');
+      if (!group) return;
+      const label = group.querySelector('.property-label');
+      if (!label) return;
+
+      let labelRow = group.querySelector('.property-label-row');
+      if (!labelRow) {
+        labelRow = document.createElement('div');
+        labelRow.className = 'property-label-row';
+        label.parentNode.insertBefore(labelRow, label);
+        labelRow.appendChild(label);
+      }
+
+      const resetBtn = document.createElement('button');
+      resetBtn.type = 'button';
+      resetBtn.className = 'property-reset';
+      resetBtn.textContent = 'Reset';
+      const labelText = label.textContent.trim() || 'setting';
+      resetBtn.setAttribute('aria-label', `Reset ${labelText}`);
+      resetBtn.addEventListener('click', () => {
+        const value = parseFloat(defaultValue);
+        if (Number.isNaN(value)) return;
+        input.value = String(value);
+        this.updateRangeVisual(input);
+        this.state.dispatch(actions.updateDefaultFilters(section, { [key]: value }));
+      });
+      labelRow.appendChild(resetBtn);
+      input.dataset.resetBound = 'true';
     });
   }
 
