@@ -710,6 +710,14 @@ class YTPEditor {
         : exportSettings.resolution;
       const widthValue = resolvedResolution && resolvedResolution.width ? resolvedResolution.width : 1280;
       const heightValue = resolvedResolution && resolvedResolution.height ? resolvedResolution.height : 720;
+      const rangeStartMs = Number.isFinite(exportSettings.rangeStart)
+        ? Math.max(0, exportSettings.rangeStart)
+        : 0;
+      const rangeEndMs = Number.isFinite(exportSettings.rangeEnd)
+        ? Math.max(0, exportSettings.rangeEnd)
+        : null;
+      const rangeStartValue = this.formatSeconds(rangeStartMs);
+      const rangeEndValue = rangeEndMs !== null ? this.formatSeconds(rangeEndMs) : '';
 
       propertiesContent.innerHTML = `
         <h3 class="property-section-title">Project Settings</h3>
@@ -789,6 +797,21 @@ class YTPEditor {
             <option value="webm" ${exportSettings.format === 'webm' ? 'selected' : ''}>WebM</option>
             <option value="mov" ${exportSettings.format === 'mov' ? 'selected' : ''}>MOV</option>
           </select>
+        </div>
+        <div class="property-group">
+          <label class="property-label">Export Range (seconds)</label>
+          <div class="property-row">
+            <label class="property-row-label" for="project-export-start">Start</label>
+            <input type="number" class="property-input" id="project-export-start"
+                   min="0" step="0.1" value="${rangeStartValue}"
+                   aria-label="Export start time in seconds">
+          </div>
+          <div class="property-row">
+            <label class="property-row-label" for="project-export-end">End</label>
+            <input type="number" class="property-input" id="project-export-end"
+                   min="0" step="0.1" value="${rangeEndValue}" placeholder="Full"
+                   aria-label="Export end time in seconds">
+          </div>
         </div>
 
         <h3 class="property-section-title">Default Video Filters</h3>
@@ -967,6 +990,30 @@ class YTPEditor {
           input.addEventListener('input', handler);
         }
       });
+
+      const exportStartInput = document.getElementById('project-export-start');
+      const exportEndInput = document.getElementById('project-export-end');
+      if (exportStartInput && exportEndInput) {
+        const parseRangeValue = (input) => {
+          const raw = input.value.trim();
+          if (raw === '') return null;
+          const seconds = parseFloat(raw);
+          if (Number.isNaN(seconds)) return null;
+          return Math.max(0, seconds * 1000);
+        };
+
+        const updateRange = () => {
+          const startMs = parseRangeValue(exportStartInput);
+          const endMs = parseRangeValue(exportEndInput);
+          this.state.dispatch(actions.updateExportSettings({
+            rangeStart: startMs !== null ? startMs : 0,
+            rangeEnd: endMs,
+          }));
+        };
+
+        exportStartInput.addEventListener('input', updateRange);
+        exportEndInput.addEventListener('input', updateRange);
+      }
 
       const defaultVideoBindings = [
         ['project-video-brightness', 'brightness'],
@@ -1467,7 +1514,8 @@ class YTPEditor {
    */
   updateTimeDisplay(timeMs) {
     const timeDisplay = document.getElementById('timeDisplay');
-    timeDisplay.textContent = formatTime(timeMs);
+    const seconds = (timeMs / 1000).toFixed(2);
+    timeDisplay.textContent = `${formatTime(timeMs)} (${seconds}s)`;
   }
 
   /**
@@ -1954,12 +2002,40 @@ class YTPEditor {
    * @returns {string|null}
    */
   buildFfmpegExportCommand(state) {
-    const segments = this.getTopmostSegments(state);
+    let segments = this.getTopmostSegments(state);
     if (segments.length === 0) return null;
 
     this.exportAudioWarning = false;
     const exportSettings = this.getExportSettings(state);
     const defaultFilters = this.getDefaultFilters(state);
+    const rangeStart = Number.isFinite(exportSettings.rangeStart)
+      ? Math.max(0, exportSettings.rangeStart)
+      : 0;
+    let rangeEnd = null;
+    if (
+      exportSettings.rangeEnd !== null &&
+      exportSettings.rangeEnd !== undefined &&
+      exportSettings.rangeEnd !== ''
+    ) {
+      const endValue = Number(exportSettings.rangeEnd);
+      if (Number.isFinite(endValue)) {
+        rangeEnd = Math.max(0, endValue);
+      }
+    }
+
+    if (rangeEnd !== null && rangeEnd <= rangeStart) {
+      return null;
+    }
+
+    const rangedSegments = [];
+    segments.forEach(segment => {
+      const start = Math.max(segment.start, rangeStart);
+      const end = rangeEnd !== null ? Math.min(segment.end, rangeEnd) : segment.end;
+      if (end <= start) return;
+      rangedSegments.push({ ...segment, start, end });
+    });
+    segments = rangedSegments;
+    if (segments.length === 0) return null;
 
     const mediaById = new Map(state.mediaLibrary.map(media => [media.id, media]));
     const inputList = [];

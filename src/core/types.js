@@ -74,6 +74,8 @@
  * @property {string} audioBitrate
  * @property {number} sampleRate
  * @property {string} format
+ * @property {number} rangeStart - export start time in ms
+ * @property {number|null} rangeEnd - export end time in ms, null for full length
  */
 
 /**

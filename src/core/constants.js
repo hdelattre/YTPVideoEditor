@@ -86,6 +86,8 @@ export const DEFAULT_EXPORT_SETTINGS = {
   audioBitrate: '192k',
   sampleRate: 44100,
   format: 'mp4',
+  rangeStart: 0,
+  rangeEnd: null,
 };
 
 export const DEFAULT_VIDEO_FILTERS = {

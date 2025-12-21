@@ -78,6 +78,15 @@
   margin-top: var(--spacing-xs);
 }
 
+.property-row-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
 .property-row .property-input {
   width: auto;
   flex: 1;
