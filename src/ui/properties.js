@@ -17,6 +17,7 @@ export class PropertiesPanel {
    */
   constructor(editor) {
     this.editor = editor;
+    this.activeTab = 'properties';
   }
 
   /**
@@ -44,6 +45,7 @@ export class PropertiesPanel {
     };
 
     if (selectedIds.length === 0) {
+      this.activeTab = 'properties';
       const baseDefaults = createDefaultFilters();
       const resolutionIsAuto = exportSettings.resolution === 'auto';
       const resolvedResolution = resolutionIsAuto
@@ -67,7 +69,7 @@ export class PropertiesPanel {
         : '';
 
       propertiesContent.innerHTML = `
-        <h3 class="property-section-title">Project Settings</h3>
+        <div class="properties-header">Project Settings</div>
         <div class="property-group">
           <label class="property-label" for="project-export-preset">Export Preset</label>
           <select class="property-input" id="project-export-preset">
@@ -486,6 +488,7 @@ export class PropertiesPanel {
     }
 
     if (selectedIds.length > 1) {
+      this.activeTab = 'properties';
       const selectedClips = state.clips.filter(c => selectedIds.includes(c.id));
       if (selectedClips.length === 0) {
         propertiesContent.innerHTML = '<p class="empty-message">Select a clip to edit properties</p>';
@@ -507,6 +510,7 @@ export class PropertiesPanel {
       const colorMixed = !allSame(clip => clip.color || '#4a9eff');
 
       propertiesContent.innerHTML = `
+        <div class="properties-header">Properties</div>
         <p class="multi-select-label">Editing ${selectedClips.length} clips</p>
         <div class="property-group">
           <label class="property-label" for="multi-speed">Speed ${mixedTag(speedMixed)}</label>
@@ -621,7 +625,11 @@ export class PropertiesPanel {
     const hasTranscript = Boolean(mediaTranscript && Array.isArray(mediaTranscript.cues));
     const searchDisabled = hasTranscript ? '' : 'disabled';
 
-    propertiesContent.innerHTML = `
+    const activeTab = this.activeTab === 'transcript' ? 'transcript' : 'properties';
+    const propertiesPanelId = `${idPrefix}-panel-properties`;
+    const transcriptPanelId = `${idPrefix}-panel-transcript`;
+
+    const propertiesMarkup = `
       <div class="property-group">
         <label class="property-label" for="${idPrefix}-name">Name</label>
         <input type="text" class="property-input" id="${idPrefix}-name" value="${clip.name}">
@@ -780,6 +788,14 @@ export class PropertiesPanel {
         </button>
       </div>
 
+      <div class="property-group">
+        <button class="btn btn-secondary" id="${idPrefix}-delete" style="width: 100%;">
+          Delete Clip
+        </button>
+      </div>
+    `;
+
+    const transcriptMarkup = `
       <h3 class="property-section-title">Transcript</h3>
       <div class="property-group">
         <div class="property-help">${transcriptSummary}</div>
@@ -805,13 +821,57 @@ export class PropertiesPanel {
           <button type="button" class="btn btn-secondary btn-sm transcript-next">Next</button>
         </div>
       </div>
+    `;
 
-      <div class="property-group">
-        <button class="btn btn-secondary" id="${idPrefix}-delete" style="width: 100%;">
-          Delete Clip
+    propertiesContent.innerHTML = `
+      <div class="properties-tabs" role="tablist">
+        <button type="button"
+                class="properties-tab${activeTab === 'properties' ? ' is-active' : ''}"
+                data-tab="properties"
+                role="tab"
+                aria-selected="${activeTab === 'properties'}"
+                aria-controls="${propertiesPanelId}">
+          Properties
+        </button>
+        <button type="button"
+                class="properties-tab${activeTab === 'transcript' ? ' is-active' : ''}"
+                data-tab="transcript"
+                role="tab"
+                aria-selected="${activeTab === 'transcript'}"
+                aria-controls="${transcriptPanelId}">
+          Transcript
         </button>
       </div>
+      <div class="properties-tab-panel${activeTab === 'properties' ? ' is-active' : ''}"
+           id="${propertiesPanelId}" data-tab-panel="properties" role="tabpanel">
+        ${propertiesMarkup}
+      </div>
+      <div class="properties-tab-panel${activeTab === 'transcript' ? ' is-active' : ''}"
+           id="${transcriptPanelId}" data-tab-panel="transcript" role="tabpanel">
+        ${transcriptMarkup}
+      </div>
     `;
+
+    const tabButtons = propertiesContent.querySelectorAll('.properties-tab');
+    const tabPanels = propertiesContent.querySelectorAll('.properties-tab-panel');
+    const setActiveTab = (tabId) => {
+      this.activeTab = tabId;
+      tabButtons.forEach((button) => {
+        const isActive = button.dataset.tab === tabId;
+        button.classList.toggle('is-active', isActive);
+        button.setAttribute('aria-selected', isActive ? 'true' : 'false');
+      });
+      tabPanels.forEach((panel) => {
+        const isActive = panel.dataset.tabPanel === tabId;
+        panel.classList.toggle('is-active', isActive);
+      });
+    };
+    tabButtons.forEach((button) => {
+      button.addEventListener('click', () => {
+        setActiveTab(button.dataset.tab);
+      });
+    });
+    setActiveTab(activeTab);
 
     // Add event listeners for property changes
     document.getElementById(`${idPrefix}-name`).addEventListener('input', (e) => {
