@@ -912,11 +912,11 @@ class YTPEditor {
     const closeBtn = modal.querySelector('.close-btn');
     closeBtn.onclick = () => modal.style.display = 'none';
 
-    window.onclick = (e) => {
+    modal.addEventListener('click', (e) => {
       if (e.target === modal) {
         modal.style.display = 'none';
       }
-    };
+    }, { once: true });
   }
 
   /**
