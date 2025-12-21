@@ -248,6 +248,11 @@ export class StateManager {
           ...((loadedState.defaultFilters && loadedState.defaultFilters.audio) || {}),
         },
       };
+      const mediaById = new Map(
+        Array.isArray(loadedState.mediaLibrary)
+          ? loadedState.mediaLibrary.map(media => [media.id, media])
+          : []
+      );
       if (Array.isArray(loadedState.clips)) {
         loadedState.clips.forEach(clip => {
           if (clip && clip.visible === undefined && clip.videoMuted !== undefined) {
@@ -255,6 +260,13 @@ export class StateManager {
           }
           if (clip && 'volume' in clip && clip.volume === 1) {
             delete clip.volume;
+          }
+          if (clip && clip.transcript && clip.mediaId) {
+            const media = mediaById.get(clip.mediaId);
+            if (media && !media.transcript) {
+              media.transcript = clip.transcript;
+            }
+            delete clip.transcript;
           }
         });
       }

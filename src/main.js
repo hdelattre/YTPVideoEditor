@@ -442,6 +442,11 @@ class YTPEditor {
 
     if (selectedClips.length === 1) {
       const clip = selectedClips[0];
+      const media = state.mediaLibrary.find(m => m.id === clip.mediaId);
+      const transcript = media && media.transcript ? media.transcript : null;
+      const transcriptSignature = transcript
+        ? `${transcript.loadedAt || 0}:${transcript.cues ? transcript.cues.length : 0}`
+        : '';
       const signature = [
         clip.id,
         clip.name,
@@ -453,6 +458,7 @@ class YTPEditor {
         clip.color,
         JSON.stringify(clip.videoFilters || {}),
         JSON.stringify(clip.audioFilters || {}),
+        transcriptSignature,
         JSON.stringify(defaultFilters),
       ].join('|');
       return { clip, signature };
@@ -1214,6 +1220,13 @@ class YTPEditor {
     const resolvedAudioFilters = this.resolveAudioFilters(clip, defaultFilters);
     const clipVolume = this.resolveClipVolume(clip, defaultFilters);
     const defaultTag = (hasOverride) => hasOverride ? '' : '<span class="property-default">Default</span>';
+    const clipMedia = state.mediaLibrary.find(m => m.id === clip.mediaId) || null;
+    const mediaTranscript = clipMedia && clipMedia.transcript ? clipMedia.transcript : null;
+    const canLoadTranscript = Boolean(clipMedia);
+    const transcriptSummary = mediaTranscript && Array.isArray(mediaTranscript.cues)
+      ? `${mediaTranscript.cues.length} cues${mediaTranscript.sourceName ? ` - ${mediaTranscript.sourceName}` : ''}`
+      : 'No transcript loaded';
+    const hasTranscript = Boolean(mediaTranscript && Array.isArray(mediaTranscript.cues));
 
     propertiesContent.innerHTML = `
       <div class="property-group">
@@ -1374,6 +1387,19 @@ class YTPEditor {
         </button>
       </div>
 
+      <h3 class="property-section-title">Transcript</h3>
+      <div class="property-group">
+        <div class="property-help">${transcriptSummary}</div>
+        <button class="btn btn-secondary btn-sm" id="${idPrefix}-transcript-load" ${canLoadTranscript ? '' : 'disabled'}>
+          Load Transcript
+        </button>
+        <button class="btn btn-secondary btn-sm" id="${idPrefix}-transcript-clear" ${hasTranscript ? '' : 'disabled'}>
+          Clear Transcript
+        </button>
+        <input type="file" id="${idPrefix}-transcript-file" accept=".txt" hidden
+               aria-label="Transcript file">
+      </div>
+
       <div class="property-group">
         <button class="btn btn-secondary" id="${idPrefix}-delete" style="width: 100%;">
           Delete Clip
@@ -1499,6 +1525,49 @@ class YTPEditor {
       audioResetBtn.addEventListener('click', () => {
         this.state.dispatch(actions.clearClipAudioFilters(clip.id));
         this.state.dispatch(actions.updateClip(clip.id, { volume: undefined }));
+        this.renderPropertiesPanel(this.state.getState());
+      });
+    }
+
+    const transcriptLoadBtn = document.getElementById(`${idPrefix}-transcript-load`);
+    const transcriptClearBtn = document.getElementById(`${idPrefix}-transcript-clear`);
+    const transcriptFileInput = document.getElementById(`${idPrefix}-transcript-file`);
+    if (transcriptLoadBtn && transcriptFileInput && clipMedia) {
+      transcriptLoadBtn.addEventListener('click', () => {
+        transcriptFileInput.click();
+      });
+      transcriptFileInput.addEventListener('change', async (e) => {
+        const file = e.target.files && e.target.files[0] ? e.target.files[0] : null;
+        if (!file) return;
+        try {
+          const text = await file.text();
+          const cues = this.parseWhisperTranscript(text);
+          if (!cues.length) {
+            this.updateStatus('Transcript not recognized');
+            return;
+          }
+          this.state.dispatch(actions.updateMedia(clipMedia.id, {
+            transcript: {
+              format: 'whisper',
+              cues,
+              sourceName: file.name,
+              loadedAt: Date.now(),
+            },
+          }));
+          this.updateStatus(`Loaded transcript (${cues.length} cues)`);
+          this.renderPropertiesPanel(this.state.getState());
+        } catch (error) {
+          console.error('Failed to load transcript:', error);
+          this.updateStatus('Failed to load transcript');
+        } finally {
+          e.target.value = '';
+        }
+      });
+    }
+
+    if (transcriptClearBtn && clipMedia) {
+      transcriptClearBtn.addEventListener('click', () => {
+        this.state.dispatch(actions.updateMedia(clipMedia.id, { transcript: undefined }));
         this.renderPropertiesPanel(this.state.getState());
       });
     }
@@ -2427,6 +2496,47 @@ class YTPEditor {
    */
   formatSeconds(ms) {
     return (ms / 1000).toFixed(3).replace(/\.?0+$/, '');
+  }
+
+  /**
+   * Parse a Whisper transcript text file with [HH:MM:SS.mmm --> HH:MM:SS.mmm] lines
+   * @param {string} text
+   * @returns {Array<{start: number, end: number, text: string}>}
+   */
+  parseWhisperTranscript(text) {
+    const cues = [];
+    if (!text) return cues;
+
+    const lines = text.split(/\r?\n/);
+    const timeRegex = /^\s*\[(\d{1,2}):(\d{2}):(\d{2}(?:\.\d{1,3})?)\s*-->\s*(\d{1,2}):(\d{2}):(\d{2}(?:\.\d{1,3})?)\]\s*(.*)$/;
+    const toMs = (hours, minutes, seconds) => {
+      const h = parseInt(hours, 10) || 0;
+      const m = parseInt(minutes, 10) || 0;
+      const s = parseFloat(seconds) || 0;
+      return (h * 3600 + m * 60 + s) * 1000;
+    };
+
+    let lastCue = null;
+    lines.forEach((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return;
+      const match = line.match(timeRegex);
+      if (match) {
+        const start = toMs(match[1], match[2], match[3]);
+        const end = toMs(match[4], match[5], match[6]);
+        if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
+          return;
+        }
+        const textValue = match[7] ? match[7].trim() : '';
+        const cue = { start, end, text: textValue };
+        cues.push(cue);
+        lastCue = cue;
+      } else if (lastCue) {
+        lastCue.text = lastCue.text ? `${lastCue.text} ${trimmed}` : trimmed;
+      }
+    });
+
+    return cues;
   }
 
   /**

@@ -63,6 +63,21 @@
  */
 
 /**
+ * @typedef {Object} Transcript
+ * @property {string} format - Source format identifier
+ * @property {TranscriptCue[]} cues
+ * @property {string} [sourceName]
+ * @property {number} loadedAt - Timestamp when loaded
+ */
+
+/**
+ * @typedef {Object} TranscriptCue
+ * @property {number} start - Start time in milliseconds
+ * @property {number} end - End time in milliseconds
+ * @property {string} text
+ */
+
+/**
  * @typedef {Object} ExportSettings
  * @property {('auto'|{width: number, height: number})} resolution
  * @property {number} fps
@@ -105,6 +120,7 @@
  * @property {number} height - Video height (px)
  * @property {string} [thumbnail] - Base64 thumbnail data URL
  * @property {number} uploadedAt - Timestamp of upload
+ * @property {Transcript} [transcript] - Loaded transcript data
  */
 
 /**
