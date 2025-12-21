@@ -1566,6 +1566,11 @@ class YTPEditor {
       </div>
       <div class="property-group">
         <div class="transcript-results" id="${idPrefix}-transcript-results"></div>
+        <div class="transcript-pagination" id="${idPrefix}-transcript-pagination" hidden>
+          <button type="button" class="btn btn-secondary btn-sm transcript-prev">Prev</button>
+          <span class="transcript-page">Page 1 of 1</span>
+          <button type="button" class="btn btn-secondary btn-sm transcript-next">Next</button>
+        </div>
       </div>
 
       <div class="property-group">
@@ -1742,11 +1747,24 @@ class YTPEditor {
 
     const transcriptSearchInput = document.getElementById(`${idPrefix}-transcript-search`);
     const transcriptResults = document.getElementById(`${idPrefix}-transcript-results`);
+    const transcriptPagination = document.getElementById(`${idPrefix}-transcript-pagination`);
+    let transcriptPage = 0;
     const renderTranscriptResults = () => {
-      this.renderTranscriptResults(clip, mediaTranscript, transcriptSearchInput ? transcriptSearchInput.value : '', transcriptResults);
+      const result = this.renderTranscriptResults(
+        clip,
+        mediaTranscript,
+        transcriptSearchInput ? transcriptSearchInput.value : '',
+        transcriptResults,
+        transcriptPagination,
+        transcriptPage
+      );
+      transcriptPage = result.page;
     };
     if (transcriptSearchInput) {
-      transcriptSearchInput.addEventListener('input', renderTranscriptResults);
+      transcriptSearchInput.addEventListener('input', () => {
+        transcriptPage = 0;
+        renderTranscriptResults();
+      });
     }
     if (transcriptResults) {
       transcriptResults.addEventListener('click', (e) => {
@@ -1755,6 +1773,19 @@ class YTPEditor {
         const time = Number(button.dataset.clipTime);
         if (!Number.isFinite(time)) return;
         this.state.dispatch(actions.setPlayhead(time), false);
+      });
+    }
+    if (transcriptPagination) {
+      transcriptPagination.addEventListener('click', (e) => {
+        if (e.target.closest('.transcript-prev')) {
+          transcriptPage -= 1;
+          renderTranscriptResults();
+          return;
+        }
+        if (e.target.closest('.transcript-next')) {
+          transcriptPage += 1;
+          renderTranscriptResults();
+        }
       });
     }
     renderTranscriptResults();
@@ -2876,11 +2907,14 @@ class YTPEditor {
    * @param {string} query
    * @param {HTMLElement|null} container
    */
-  renderTranscriptResults(clip, transcript, query, container) {
-    if (!container) return;
+  renderTranscriptResults(clip, transcript, query, container, pagination, page = 0) {
+    if (!container) return { page: 0, pageCount: 0, total: 0 };
     if (!transcript || !Array.isArray(transcript.cues) || transcript.cues.length === 0) {
       container.innerHTML = '<div class="transcript-empty">Load a transcript to search.</div>';
-      return;
+      if (pagination) {
+        pagination.hidden = true;
+      }
+      return { page: 0, pageCount: 0, total: 0 };
     }
 
     const search = query ? query.trim().toLowerCase() : '';
@@ -2897,21 +2931,47 @@ class YTPEditor {
 
     if (matches.length === 0) {
       container.innerHTML = '<div class="transcript-empty">No matches.</div>';
-      return;
+      if (pagination) {
+        pagination.hidden = true;
+      }
+      return { page: 0, pageCount: 0, total: 0 };
     }
 
-    const maxResults = 100;
-    const visible = matches.slice(0, maxResults);
+    const pageSize = 100;
+    const pageCount = Math.max(1, Math.ceil(matches.length / pageSize));
+    const safePage = Math.max(0, Math.min(pageCount - 1, page));
+    const startIndex = safePage * pageSize;
+    const endIndex = Math.min(matches.length, startIndex + pageSize);
+    const visible = matches.slice(startIndex, endIndex);
     container.innerHTML = visible.map((item) => (
       `<button type="button" class="transcript-result" data-clip-time="${item.clipTime}">
         <span class="transcript-time">${formatTime(item.clipTime)}</span>
         <span class="transcript-text">${this.escapeHtml(item.text)}</span>
       </button>`
     )).join('');
+    container.scrollTop = 0;
 
-    if (matches.length > maxResults) {
-      container.innerHTML += `<div class="transcript-more">Showing ${maxResults} of ${matches.length} matches.</div>`;
+    if (matches.length > pageSize) {
+      container.innerHTML += `<div class="transcript-more">Showing ${startIndex + 1}-${endIndex} of ${matches.length} matches.</div>`;
     }
+
+    if (pagination) {
+      const prevBtn = pagination.querySelector('.transcript-prev');
+      const nextBtn = pagination.querySelector('.transcript-next');
+      const pageLabel = pagination.querySelector('.transcript-page');
+      if (pageLabel) {
+        pageLabel.textContent = `Page ${safePage + 1} of ${pageCount}`;
+      }
+      if (prevBtn) {
+        prevBtn.disabled = safePage <= 0;
+      }
+      if (nextBtn) {
+        nextBtn.disabled = safePage >= pageCount - 1;
+      }
+      pagination.hidden = pageCount <= 1;
+    }
+
+    return { page: safePage, pageCount, total: matches.length };
   }
 
   /**

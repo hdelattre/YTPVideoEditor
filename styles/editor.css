@@ -162,6 +162,19 @@
   overflow-y: auto;
 }
 
+.transcript-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: var(--spacing-xs);
+  gap: var(--spacing-xs);
+}
+
+.transcript-page {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
 .transcript-result {
   display: flex;
   align-items: baseline;
