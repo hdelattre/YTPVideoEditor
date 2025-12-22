@@ -39,8 +39,10 @@ class YTPEditor {
     this.lastPreviewAudioClipId = null;
     this.lastReverseSeekTime = 0;
     this.lastReverseAudioSeekTime = 0;
+    this.lastAudioSeekTime = 0;
     this.lastReverseVideoClipTime = null;
     this.lastReverseVideoMediaId = null;
+    this.lastVideoSeekTime = 0;
     this.previewFrameBuffer = document.createElement('canvas');
     this.previewFrameCtx = this.previewFrameBuffer.getContext('2d');
     this.hasPreviewFrame = false;
@@ -1063,6 +1065,14 @@ class YTPEditor {
         video.muted = true;
         video.preload = 'auto';
         video.volume = 0;
+        const schedulePreviewIfPaused = () => {
+          if (!this.state.getState().isPlaying) {
+            this.schedulePreviewRender();
+          }
+        };
+        video.addEventListener('seeked', schedulePreviewIfPaused);
+        video.addEventListener('loadeddata', schedulePreviewIfPaused);
+        video.addEventListener('canplay', schedulePreviewIfPaused);
         this.videoElements.set(media.id, video);
       }
       const video = this.videoElements.get(media.id);
@@ -1088,6 +1098,7 @@ class YTPEditor {
     const shouldResync = this.hasExternalSeek === true;
     let didDrawFrame = false;
     let previewVideoForCallback = null;
+    let needsSeekRefresh = false;
 
     const topmostAudioClip = getTopmostClip(activeClips);
     const videoCandidates = activeClips.filter((clip) => {
@@ -1154,9 +1165,9 @@ class YTPEditor {
         const timeDiff = Math.abs(audio.currentTime - clipTime);
         if (timeDiff > 0.05) {
           const now = Date.now();
-          if (!this.lastSeekTime || now - this.lastSeekTime > 50) {
+          if (!this.lastAudioSeekTime || now - this.lastAudioSeekTime > 10) {
             audio.currentTime = clipTime;
-            this.lastSeekTime = now;
+            this.lastAudioSeekTime = now;
           }
         }
       }
@@ -1225,15 +1236,20 @@ class YTPEditor {
         const timeDiff = Math.abs(video.currentTime - clipTime);
         if (timeDiff > 0.05) {
           const now = Date.now();
-          if (!this.lastSeekTime || now - this.lastSeekTime > 50) {
+          if (!this.lastVideoSeekTime || now - this.lastVideoSeekTime > 10) {
             video.currentTime = clipTime;
-            this.lastSeekTime = now;
+            this.lastVideoSeekTime = now;
+            needsSeekRefresh = true;
           }
         }
       }
 
       if (!isReversed && !video.paused && video.readyState >= video.HAVE_CURRENT_DATA) {
         previewVideoForCallback = video;
+      }
+
+      if (!state.isPlaying && video.seeking) {
+        needsSeekRefresh = true;
       }
 
       if (video.readyState >= video.HAVE_CURRENT_DATA && !video.seeking) {
@@ -1302,6 +1318,10 @@ class YTPEditor {
           audio.pause();
         }
       });
+    }
+
+    if (!state.isPlaying && needsSeekRefresh) {
+      this.schedulePreviewRender();
     }
 
     return previewVideoForCallback;
