@@ -30,6 +30,8 @@ class YTPEditor {
     this.state = new StateManager();
     this.wasPlaying = false;
     this.isPlaybackLoopActive = false;
+    this.isPreviewLoopActive = false;
+    this.previewFrameScheduled = false;
     this.isPlayheadUpdateFromPlayback = false;
     this.lastPlayhead = 0;
     this.mediaInfo = new Map();
@@ -120,7 +122,7 @@ class YTPEditor {
     setupRangeVisuals(document);
 
     // Start preview render loop
-    this.renderPreview();
+    this.schedulePreviewRender();
   }
 
   /**
@@ -329,6 +331,13 @@ class YTPEditor {
       this.lastPropertiesClipId = state.selectedClipId;
       this.lastPropertiesSignature = selectedSignature;
     }
+
+    if (state.isPlaying) {
+      this.startPreviewLoop();
+    } else {
+      this.isPreviewLoopActive = false;
+      this.schedulePreviewRender();
+    }
   }
 
   /**
@@ -510,6 +519,36 @@ class YTPEditor {
       this.isPlaybackLoopActive = true;
       this.playbackLoop();
     }
+  }
+
+  /**
+   * Start preview loop while playing
+   */
+  startPreviewLoop() {
+    if (this.isPreviewLoopActive) return;
+    this.isPreviewLoopActive = true;
+    const loop = () => {
+      if (!this.isPreviewLoopActive) return;
+      this.renderPreview();
+      if (this.state.getState().isPlaying) {
+        requestAnimationFrame(loop);
+      } else {
+        this.isPreviewLoopActive = false;
+      }
+    };
+    requestAnimationFrame(loop);
+  }
+
+  /**
+   * Schedule a single preview render
+   */
+  schedulePreviewRender() {
+    if (this.previewFrameScheduled) return;
+    this.previewFrameScheduled = true;
+    requestAnimationFrame(() => {
+      this.previewFrameScheduled = false;
+      this.renderPreview();
+    });
   }
 
   /**
@@ -1218,8 +1257,6 @@ class YTPEditor {
       });
     }
 
-    // Continue render loop
-    requestAnimationFrame(() => this.renderPreview());
   }
 
   /**
