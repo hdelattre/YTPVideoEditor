@@ -113,6 +113,24 @@ class YTPEditor {
     this.saveLocalBtn = document.getElementById('saveLocalBtn');
     this.saveExportBtn = document.getElementById('saveExportBtn');
     this.saveCancelBtn = document.getElementById('saveCancelBtn');
+    this.uploadBtn = document.getElementById('uploadBtn');
+    this.fileInput = document.getElementById('fileInput');
+    this.playBtn = document.getElementById('playBtn');
+    this.pauseBtn = document.getElementById('pauseBtn');
+    this.undoBtn = document.getElementById('undoBtn');
+    this.redoBtn = document.getElementById('redoBtn');
+    this.newProjectBtn = document.getElementById('newProjectBtn');
+    this.saveBtn = document.getElementById('saveBtn');
+    this.exportBtn = document.getElementById('exportBtn');
+    this.addTrackBtn = document.getElementById('addTrackBtn');
+    this.zoomInBtn = document.getElementById('zoomInBtn');
+    this.zoomOutBtn = document.getElementById('zoomOutBtn');
+    this.zoomLevelLabel = document.getElementById('zoomLevel');
+    this.volumeSlider = document.getElementById('volumeSlider');
+    this.timeDisplay = document.getElementById('timeDisplay');
+    this.statusText = document.getElementById('statusText');
+    this.propertiesContent = document.getElementById('propertiesContent');
+    this.helpModal = document.getElementById('helpModal');
     this.reassociateInput = document.createElement('input');
     this.reassociateInput.type = 'file';
     this.reassociateInput.accept = 'video/*,audio/*';
@@ -130,27 +148,27 @@ class YTPEditor {
    */
   setupEventListeners() {
     // File upload
-    const uploadBtn = document.getElementById('uploadBtn');
-    const fileInput = document.getElementById('fileInput');
+    const uploadBtn = this.uploadBtn;
+    const fileInput = this.fileInput;
 
     uploadBtn.addEventListener('click', () => fileInput.click());
     fileInput.addEventListener('change', (e) => this.mediaManager.handleFileUpload(e));
 
     // Playback controls
-    document.getElementById('playBtn').addEventListener('click', () => this.play());
-    document.getElementById('pauseBtn').addEventListener('click', () => this.pause());
+    this.playBtn.addEventListener('click', () => this.play());
+    this.pauseBtn.addEventListener('click', () => this.pause());
 
     // Toolbar controls
-    document.getElementById('undoBtn').addEventListener('click', () => this.state.undo());
-    document.getElementById('redoBtn').addEventListener('click', () => this.state.redo());
-    document.getElementById('newProjectBtn').addEventListener('click', () => this.showProjectModal());
-    document.getElementById('saveBtn').addEventListener('click', () => this.showSaveModal());
-    document.getElementById('exportBtn').addEventListener('click', () => this.exportVideo());
-    document.getElementById('addTrackBtn').addEventListener('click', () => this.addTrack());
+    this.undoBtn.addEventListener('click', () => this.state.undo());
+    this.redoBtn.addEventListener('click', () => this.state.redo());
+    this.newProjectBtn.addEventListener('click', () => this.showProjectModal());
+    this.saveBtn.addEventListener('click', () => this.showSaveModal());
+    this.exportBtn.addEventListener('click', () => this.exportVideo());
+    this.addTrackBtn.addEventListener('click', () => this.addTrack());
 
     // Zoom controls
-    document.getElementById('zoomInBtn').addEventListener('click', () => this.zoomIn());
-    document.getElementById('zoomOutBtn').addEventListener('click', () => this.zoomOut());
+    this.zoomInBtn.addEventListener('click', () => this.zoomIn());
+    this.zoomOutBtn.addEventListener('click', () => this.zoomOut());
 
     if (this.exportCommandCopyBtn) {
       this.exportCommandCopyBtn.addEventListener('click', () => {
@@ -244,8 +262,7 @@ class YTPEditor {
     }
 
     // Volume control
-    const volumeSlider = document.getElementById('volumeSlider');
-    volumeSlider.addEventListener('input', (e) => {
+    this.volumeSlider.addEventListener('input', (e) => {
       this.masterVolume = e.target.value / 100;
     });
 
@@ -261,7 +278,9 @@ class YTPEditor {
     });
 
     const resumeAudio = () => {
-      this.ensureAudioContext();
+      if (this.state.getState().isPlaying) {
+        this.ensureAudioContext();
+      }
     };
     document.addEventListener('pointerdown', resumeAudio);
     document.addEventListener('keydown', resumeAudio);
@@ -281,6 +300,7 @@ class YTPEditor {
       this.startPlaybackFromState(state);
     } else if (!state.isPlaying && wasPlaying) {
       this.isPlaybackLoopActive = false;
+      this.suspendAudioContext();
     }
     if (state.isPlaying && playheadChanged && !isPlaybackTick) {
       // User or UI seek while playing; realign playback loop.
@@ -303,34 +323,31 @@ class YTPEditor {
     this.updateTimeDisplay(state.playhead);
 
     // Update undo/redo buttons
-    document.getElementById('undoBtn').disabled = !this.state.canUndo();
-    document.getElementById('redoBtn').disabled = !this.state.canRedo();
+    this.undoBtn.disabled = !this.state.canUndo();
+    this.redoBtn.disabled = !this.state.canRedo();
 
     // Update zoom display
     const zoomPercent = Math.round(Math.pow(2, state.zoom) * 100);
-    document.getElementById('zoomLevel').textContent = `${zoomPercent}%`;
+    this.zoomLevelLabel.textContent = `${zoomPercent}%`;
 
     // Update play/pause buttons
-    const playBtn = document.getElementById('playBtn');
-    const pauseBtn = document.getElementById('pauseBtn');
     if (state.isPlaying) {
-      playBtn.style.display = 'none';
-      pauseBtn.style.display = 'inline-block';
+      this.playBtn.style.display = 'none';
+      this.pauseBtn.style.display = 'inline-block';
     } else {
-      playBtn.style.display = 'inline-block';
-      pauseBtn.style.display = 'none';
+      this.playBtn.style.display = 'inline-block';
+      this.pauseBtn.style.display = 'none';
     }
 
     // Enable export if there are clips
-    document.getElementById('exportBtn').disabled = state.clips.length === 0;
+    this.exportBtn.disabled = state.clips.length === 0;
 
     // Update media library UI
     this.mediaManager.renderMediaLibrary(state);
 
     // Update properties panel only when selected clip changes or when not actively editing
     const { signature: selectedSignature } = this.getSelectedClipSignature(state);
-    const propertiesContent = document.getElementById('propertiesContent');
-    const isEditing = propertiesContent && propertiesContent.contains(document.activeElement);
+    const isEditing = this.propertiesContent && this.propertiesContent.contains(document.activeElement);
     const clipChanged = state.selectedClipId !== this.lastPropertiesClipId;
     const shouldRenderProperties = clipChanged || (!isEditing && selectedSignature !== this.lastPropertiesSignature);
 
@@ -492,9 +509,10 @@ class YTPEditor {
    * @param {number} timeMs
    */
   updateTimeDisplay(timeMs) {
-    const timeDisplay = document.getElementById('timeDisplay');
     const seconds = (timeMs / 1000).toFixed(2);
-    timeDisplay.textContent = `${formatTime(timeMs)} (${seconds}s)`;
+    if (this.timeDisplay) {
+      this.timeDisplay.textContent = `${formatTime(timeMs)} (${seconds}s)`;
+    }
   }
 
   /**
@@ -537,9 +555,13 @@ class YTPEditor {
     this.isPreviewLoopActive = true;
     const loop = () => {
       if (!this.isPreviewLoopActive) return;
-      this.renderPreview();
+      const previewVideo = this.renderPreview();
       if (this.state.getState().isPlaying) {
-        requestAnimationFrame(loop);
+        if (previewVideo && typeof previewVideo.requestVideoFrameCallback === 'function') {
+          previewVideo.requestVideoFrameCallback(loop);
+        } else {
+          requestAnimationFrame(loop);
+        }
       } else {
         this.isPreviewLoopActive = false;
       }
@@ -928,6 +950,16 @@ class YTPEditor {
   }
 
   /**
+   * Suspend AudioContext to save power when idle
+   */
+  suspendAudioContext() {
+    if (!this.audioContext) return;
+    if (this.audioContext.state === 'running') {
+      this.audioContext.suspend().catch(() => {});
+    }
+  }
+
+  /**
    * Stop reverse audio playback
    */
   stopReverseAudio() {
@@ -953,7 +985,8 @@ class YTPEditor {
    * Show help modal
    */
   showHelp() {
-    const modal = document.getElementById('helpModal');
+    const modal = this.helpModal;
+    if (!modal) return;
     modal.style.display = 'block';
 
     const closeBtn = modal.querySelector('.close-btn');
@@ -968,6 +1001,7 @@ class YTPEditor {
 
   /**
    * Render preview canvas
+   * @returns {HTMLVideoElement|null}
    */
   renderPreview() {
     const state = this.state.getState();
@@ -1053,6 +1087,7 @@ class YTPEditor {
     const activeAudioMediaIds = new Set();
     const shouldResync = this.hasExternalSeek === true;
     let didDrawFrame = false;
+    let previewVideoForCallback = null;
 
     const topmostAudioClip = getTopmostClip(activeClips);
     const videoCandidates = activeClips.filter((clip) => {
@@ -1197,6 +1232,10 @@ class YTPEditor {
         }
       }
 
+      if (!isReversed && !video.paused && video.readyState >= video.HAVE_CURRENT_DATA) {
+        previewVideoForCallback = video;
+      }
+
       if (video.readyState >= video.HAVE_CURRENT_DATA && !video.seeking) {
         const videoAspect = video.videoWidth / video.videoHeight;
         const canvasAspect = width / height;
@@ -1265,6 +1304,7 @@ class YTPEditor {
       });
     }
 
+    return previewVideoForCallback;
   }
 
   /**
@@ -1300,7 +1340,9 @@ class YTPEditor {
    * @param {string} text
    */
   updateStatus(text) {
-    document.getElementById('statusText').textContent = text;
+    if (this.statusText) {
+      this.statusText.textContent = text;
+    }
   }
 }
 
