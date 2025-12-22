@@ -291,6 +291,14 @@ class YTPEditor {
     this.lastPlayhead = state.playhead;
     this.isPlayheadUpdateFromPlayback = false;
 
+    if (isPlaybackTick) {
+      this.updateTimeDisplay(state.playhead);
+      if (state.isPlaying) {
+        this.startPreviewLoop();
+      }
+      return;
+    }
+
     // Update time display
     this.updateTimeDisplay(state.playhead);
 
