@@ -120,6 +120,7 @@ export function selectClip(clipId) {
   return (state) => {
     state.selectedClipId = clipId;
     state.selectedClipIds = clipId ? [clipId] : [];
+    state.selectedMediaId = null;
     return state;
   };
 }
@@ -139,6 +140,7 @@ export function setSelection(clipIds, primaryId = null) {
     } else {
       state.selectedClipId = unique[0] || null;
     }
+    state.selectedMediaId = null;
     return state;
   };
 }
@@ -154,6 +156,7 @@ export function addClipToSelection(clipId) {
     ids.add(clipId);
     state.selectedClipIds = Array.from(ids);
     state.selectedClipId = clipId;
+    state.selectedMediaId = null;
     return state;
   };
 }
@@ -176,6 +179,21 @@ export function toggleClipSelection(clipId) {
     if (!state.selectedClipIds.includes(state.selectedClipId)) {
       state.selectedClipId = state.selectedClipIds[0] || null;
     }
+    state.selectedMediaId = null;
+    return state;
+  };
+}
+
+/**
+ * Select a media item in the library
+ * @param {string|null} mediaId
+ * @returns {import('./types.js').ActionFunction}
+ */
+export function selectMedia(mediaId) {
+  return (state) => {
+    state.selectedMediaId = mediaId;
+    state.selectedClipId = null;
+    state.selectedClipIds = [];
     return state;
   };
 }

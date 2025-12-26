@@ -4,12 +4,13 @@
 
 import * as actions from '../core/actions.js';
 import { createDefaultFilters } from '../core/constants.js';
-import { formatSeconds } from '../utils/format.js';
+import { escapeHtml, formatSeconds } from '../utils/format.js';
 import { getExportResolution } from '../export/ffmpeg.js';
 import { EXPORT_PRESETS, getExportPresetMatch } from '../export/settings.js';
 import { getClipSourceRange, mapSourceTimeToClipTime } from '../utils/clipTiming.js';
 import { decoratePropertySliders } from './rangeVisuals.js';
 import { parseWhisperTranscript, renderTranscriptResults } from './transcript.js';
+import { buildSpeechSegments, renderSpeechBuilderResults } from './speechBuilder.js';
 
 export class PropertiesPanel {
   /**
@@ -18,6 +19,15 @@ export class PropertiesPanel {
   constructor(editor) {
     this.editor = editor;
     this.activeTab = 'properties';
+    this.builderState = {
+      sentence: '',
+      segments: [],
+      selections: {},
+      mediaId: null,
+      transcriptKey: null,
+      missingCount: 0,
+    };
+    this.transcriptTab = 'search';
   }
 
   /**
@@ -32,6 +42,10 @@ export class PropertiesPanel {
     const selectedIds = Array.isArray(state.selectedClipIds) && state.selectedClipIds.length > 0
       ? state.selectedClipIds
       : (state.selectedClipId ? [state.selectedClipId] : []);
+    const selectedMediaId = selectedIds.length === 0 ? state.selectedMediaId : null;
+    const selectedMedia = selectedMediaId
+      ? state.mediaLibrary.find(m => m.id === selectedMediaId) || null
+      : null;
 
     const defaultFilters = editor.getDefaultFilters(state);
     const exportSettings = editor.getExportSettings(state);
@@ -44,7 +58,7 @@ export class PropertiesPanel {
       });
     };
 
-    if (selectedIds.length === 0) {
+    if (selectedIds.length === 0 && !selectedMedia) {
       this.activeTab = 'properties';
       const baseDefaults = createDefaultFilters();
       const resolutionIsAuto = exportSettings.resolution === 'auto';
@@ -606,17 +620,17 @@ export class PropertiesPanel {
       return;
     }
 
-    const clip = state.clips.find(c => c.id === selectedIds[0]);
-    if (!clip) return;
+    const clip = selectedIds.length > 0 ? state.clips.find(c => c.id === selectedIds[0]) : null;
+    if (selectedIds.length > 0 && !clip) return;
 
-    const idPrefix = `clip-${clip.id}`;
-    const videoOverrides = clip.videoFilters || {};
-    const audioOverrides = clip.audioFilters || {};
-    const resolvedVideoFilters = editor.resolveVideoFilters(clip, defaultFilters);
-    const resolvedAudioFilters = editor.resolveAudioFilters(clip, defaultFilters);
-    const clipVolume = editor.resolveClipVolume(clip, defaultFilters);
+    const clipMedia = clip
+      ? state.mediaLibrary.find(m => m.id === clip.mediaId) || null
+      : selectedMedia;
+    const idPrefix = clip
+      ? `clip-${clip.id}`
+      : `media-${clipMedia ? clipMedia.id : 'unknown'}`;
+
     const defaultTag = (hasOverride) => hasOverride ? '' : '<span class="property-default">Default</span>';
-    const clipMedia = state.mediaLibrary.find(m => m.id === clip.mediaId) || null;
     const mediaTranscript = clipMedia && clipMedia.transcript ? clipMedia.transcript : null;
     const canLoadTranscript = Boolean(clipMedia);
     const transcriptSummary = mediaTranscript && Array.isArray(mediaTranscript.cues)
@@ -625,11 +639,35 @@ export class PropertiesPanel {
     const hasTranscript = Boolean(mediaTranscript && Array.isArray(mediaTranscript.cues));
     const searchDisabled = hasTranscript ? '' : 'disabled';
 
-    const activeTab = this.activeTab === 'transcript' ? 'transcript' : 'properties';
+    const builderTranscriptKey = hasTranscript
+      ? `${mediaTranscript.loadedAt || 0}:${mediaTranscript.cues.length}`
+      : 'none';
+    const currentMediaId = clipMedia ? clipMedia.id : null;
+    if (this.builderState.mediaId !== currentMediaId || this.builderState.transcriptKey !== builderTranscriptKey) {
+      this.builderState.segments = [];
+      this.builderState.selections = {};
+      this.builderState.missingCount = 0;
+      this.builderState.mediaId = currentMediaId;
+      this.builderState.transcriptKey = builderTranscriptKey;
+    }
+    const activeTranscriptTab = this.transcriptTab === 'builder' ? 'builder' : 'search';
+
+    if (!clip) {
+      this.activeTab = 'transcript';
+    }
+    const activeTab = clip && this.activeTab === 'transcript' ? 'transcript' : 'properties';
     const propertiesPanelId = `${idPrefix}-panel-properties`;
     const transcriptPanelId = `${idPrefix}-panel-transcript`;
 
-    const propertiesMarkup = `
+    let propertiesMarkup = '';
+    if (clip) {
+      const videoOverrides = clip.videoFilters || {};
+      const audioOverrides = clip.audioFilters || {};
+      const resolvedVideoFilters = editor.resolveVideoFilters(clip, defaultFilters);
+      const resolvedAudioFilters = editor.resolveAudioFilters(clip, defaultFilters);
+      const clipVolume = editor.resolveClipVolume(clip, defaultFilters);
+
+      propertiesMarkup = `
       <div class="property-group">
         <label class="property-label" for="${idPrefix}-name">Name</label>
         <input type="text" class="property-input" id="${idPrefix}-name" value="${clip.name}">
@@ -794,6 +832,49 @@ export class PropertiesPanel {
         </button>
       </div>
     `;
+    }
+
+    const builderSentenceValue = escapeHtml(this.builderState.sentence || '');
+    const builderHasResults = this.builderState.segments.length > 0;
+    const builderMissingCount = this.builderState.missingCount || 0;
+    const builderCanBuild = hasTranscript && Boolean(this.builderState.sentence.trim());
+    const builderCanCopy = builderHasResults && builderMissingCount === 0;
+    const builderCanClear = Boolean(this.builderState.sentence);
+    const builderSummaryMarkup = !hasTranscript
+      ? '<div class="builder-empty">Load a transcript to build sentences.</div>'
+      : (builderHasResults
+        ? `<div class="builder-summary">Segments: ${this.builderState.segments.length}${builderMissingCount ? ` (missing ${builderMissingCount})` : ''}</div>`
+        : '<div class="builder-empty">Enter a sentence and click Build Options.</div>');
+    const builderResultsMarkup = hasTranscript
+      ? renderSpeechBuilderResults(this.builderState.segments, this.builderState.selections)
+      : '';
+
+    const builderMarkup = `
+      <div class="property-group">
+        <label class="property-label" for="${idPrefix}-builder-input">Sentence</label>
+        <textarea class="property-input builder-input" id="${idPrefix}-builder-input"
+                  rows="3" placeholder="Type a sentence...">${builderSentenceValue}</textarea>
+      </div>
+      <div class="property-group builder-actions">
+        <button class="btn btn-secondary btn-sm" id="${idPrefix}-builder-build" ${builderCanBuild ? '' : 'disabled'}>
+          Build Options
+        </button>
+        <button class="btn btn-secondary btn-sm" id="${idPrefix}-builder-clear" ${builderCanClear ? '' : 'disabled'}>
+          Clear
+        </button>
+        <button class="btn btn-primary btn-sm" id="${idPrefix}-builder-copy" ${builderCanCopy ? '' : 'disabled'}>
+          Copy to Clipboard
+        </button>
+      </div>
+      <div class="property-group">
+        ${builderSummaryMarkup}
+      </div>
+      <div class="property-group">
+        <div class="builder-results" id="${idPrefix}-builder-results">
+          ${builderResultsMarkup}
+        </div>
+      </div>
+    `;
 
     const transcriptMarkup = `
       <h3 class="property-section-title">Transcript</h3>
@@ -808,191 +889,248 @@ export class PropertiesPanel {
         <input type="file" id="${idPrefix}-transcript-file" accept=".txt" hidden
                aria-label="Transcript file">
       </div>
-      <div class="property-group">
-        <label class="property-label" for="${idPrefix}-transcript-search">Search Transcript</label>
-        <input type="text" class="property-input" id="${idPrefix}-transcript-search"
-               placeholder="Search words..." ${searchDisabled}>
+      <div class="transcript-tabs" role="tablist">
+        <button type="button"
+                class="transcript-tab${activeTranscriptTab === 'search' ? ' is-active' : ''}"
+                data-transcript-tab="search"
+                role="tab"
+                aria-selected="${activeTranscriptTab === 'search'}"
+                aria-controls="${idPrefix}-transcript-panel-search">
+          Search
+        </button>
+        <button type="button"
+                class="transcript-tab${activeTranscriptTab === 'builder' ? ' is-active' : ''}"
+                data-transcript-tab="builder"
+                role="tab"
+                aria-selected="${activeTranscriptTab === 'builder'}"
+                aria-controls="${idPrefix}-transcript-panel-builder">
+          Speech Builder
+        </button>
       </div>
-      <div class="property-group">
-        <div class="transcript-results" id="${idPrefix}-transcript-results"></div>
-        <div class="transcript-pagination" id="${idPrefix}-transcript-pagination" hidden>
-          <button type="button" class="btn btn-secondary btn-sm transcript-prev">Prev</button>
-          <span class="transcript-page">Page 1 of 1</span>
-          <button type="button" class="btn btn-secondary btn-sm transcript-next">Next</button>
+      <div class="transcript-tab-panel${activeTranscriptTab === 'search' ? ' is-active' : ''}"
+           id="${idPrefix}-transcript-panel-search" data-transcript-panel="search" role="tabpanel">
+        <div class="property-group">
+          <input type="text" class="property-input" id="${idPrefix}-transcript-search"
+                 placeholder="Search words..." ${searchDisabled}>
+        </div>
+        <div class="property-group">
+          <div class="transcript-results" id="${idPrefix}-transcript-results"></div>
+          <div class="transcript-pagination" id="${idPrefix}-transcript-pagination" hidden>
+            <button type="button" class="btn btn-secondary btn-sm transcript-prev">Prev</button>
+            <span class="transcript-page">Page 1 of 1</span>
+            <button type="button" class="btn btn-secondary btn-sm transcript-next">Next</button>
+          </div>
         </div>
       </div>
-    `;
-
-    propertiesContent.innerHTML = `
-      <div class="properties-tabs" role="tablist">
-        <button type="button"
-                class="properties-tab${activeTab === 'properties' ? ' is-active' : ''}"
-                data-tab="properties"
-                role="tab"
-                aria-selected="${activeTab === 'properties'}"
-                aria-controls="${propertiesPanelId}">
-          Properties
-        </button>
-        <button type="button"
-                class="properties-tab${activeTab === 'transcript' ? ' is-active' : ''}"
-                data-tab="transcript"
-                role="tab"
-                aria-selected="${activeTab === 'transcript'}"
-                aria-controls="${transcriptPanelId}">
-          Transcript
-        </button>
-      </div>
-      <div class="properties-tab-panel${activeTab === 'properties' ? ' is-active' : ''}"
-           id="${propertiesPanelId}" data-tab-panel="properties" role="tabpanel">
-        ${propertiesMarkup}
-      </div>
-      <div class="properties-tab-panel${activeTab === 'transcript' ? ' is-active' : ''}"
-           id="${transcriptPanelId}" data-tab-panel="transcript" role="tabpanel">
-        ${transcriptMarkup}
+      <div class="transcript-tab-panel${activeTranscriptTab === 'builder' ? ' is-active' : ''}"
+           id="${idPrefix}-transcript-panel-builder" data-transcript-panel="builder" role="tabpanel">
+        ${builderMarkup}
       </div>
     `;
 
-    const tabButtons = propertiesContent.querySelectorAll('.properties-tab');
-    const tabPanels = propertiesContent.querySelectorAll('.properties-tab-panel');
-    const setActiveTab = (tabId) => {
-      this.activeTab = tabId;
+    if (clip) {
+      propertiesContent.innerHTML = `
+        <div class="properties-tabs" role="tablist">
+          <button type="button"
+                  class="properties-tab${activeTab === 'properties' ? ' is-active' : ''}"
+                  data-tab="properties"
+                  role="tab"
+                  aria-selected="${activeTab === 'properties'}"
+                  aria-controls="${propertiesPanelId}">
+            Properties
+          </button>
+          <button type="button"
+                  class="properties-tab${activeTab === 'transcript' ? ' is-active' : ''}"
+                  data-tab="transcript"
+                  role="tab"
+                  aria-selected="${activeTab === 'transcript'}"
+                  aria-controls="${transcriptPanelId}">
+            Transcript
+          </button>
+        </div>
+        <div class="properties-tab-panel${activeTab === 'properties' ? ' is-active' : ''}"
+             id="${propertiesPanelId}" data-tab-panel="properties" role="tabpanel">
+          ${propertiesMarkup}
+        </div>
+        <div class="properties-tab-panel${activeTab === 'transcript' ? ' is-active' : ''}"
+             id="${transcriptPanelId}" data-tab-panel="transcript" role="tabpanel">
+          ${transcriptMarkup}
+        </div>
+      `;
+
+      const tabButtons = propertiesContent.querySelectorAll('.properties-tab');
+      const tabPanels = propertiesContent.querySelectorAll('.properties-tab-panel');
+      const setActiveTab = (tabId) => {
+        this.activeTab = tabId;
+        tabButtons.forEach((button) => {
+          const isActive = button.dataset.tab === tabId;
+          button.classList.toggle('is-active', isActive);
+          button.setAttribute('aria-selected', isActive ? 'true' : 'false');
+        });
+        tabPanels.forEach((panel) => {
+          const isActive = panel.dataset.tabPanel === tabId;
+          panel.classList.toggle('is-active', isActive);
+        });
+      };
       tabButtons.forEach((button) => {
-        const isActive = button.dataset.tab === tabId;
-        button.classList.toggle('is-active', isActive);
-        button.setAttribute('aria-selected', isActive ? 'true' : 'false');
+        button.addEventListener('click', () => {
+          setActiveTab(button.dataset.tab);
+        });
       });
-      tabPanels.forEach((panel) => {
-        const isActive = panel.dataset.tabPanel === tabId;
-        panel.classList.toggle('is-active', isActive);
-      });
-    };
-    tabButtons.forEach((button) => {
-      button.addEventListener('click', () => {
-        setActiveTab(button.dataset.tab);
-      });
-    });
-    setActiveTab(activeTab);
-
-    // Add event listeners for property changes
-    document.getElementById(`${idPrefix}-name`).addEventListener('input', (e) => {
-      editor.state.dispatch(actions.updateClip(clip.id, { name: e.target.value }));
-    });
-
-    document.getElementById(`${idPrefix}-speed`).addEventListener('input', (e) => {
-      const speed = parseFloat(e.target.value);
-      document.getElementById(`${idPrefix}-speed-value`).textContent = `${speed}x`;
-      editor.state.dispatch(actions.setClipSpeed(clip.id, speed));
-    });
-
-    document.getElementById(`${idPrefix}-volume`).addEventListener('input', (e) => {
-      const volume = parseFloat(e.target.value);
-      document.getElementById(`${idPrefix}-volume-value`).textContent = `${Math.round(volume * 100)}%`;
-      editor.state.dispatch(actions.updateClip(clip.id, { volume }));
-    });
-
-    document.getElementById(`${idPrefix}-muted`).addEventListener('change', (e) => {
-      editor.state.dispatch(actions.updateClip(clip.id, { muted: e.target.checked }));
-    });
-
-    document.getElementById(`${idPrefix}-visible`).addEventListener('change', (e) => {
-      editor.state.dispatch(actions.updateClip(clip.id, { visible: e.target.checked }));
-    });
-
-    document.getElementById(`${idPrefix}-reversed`).addEventListener('change', () => {
-      editor.state.dispatch(actions.reverseClip(clip.id));
-    });
-
-    document.getElementById(`${idPrefix}-color`).addEventListener('input', (e) => {
-      editor.state.dispatch(actions.updateClip(clip.id, { color: e.target.value }));
-    });
-
-    const videoBindings = [
-      [`${idPrefix}-brightness`, 'brightness'],
-      [`${idPrefix}-contrast`, 'contrast'],
-      [`${idPrefix}-saturation`, 'saturation'],
-      [`${idPrefix}-hue`, 'hue'],
-      [`${idPrefix}-gamma`, 'gamma'],
-      [`${idPrefix}-blur`, 'blur'],
-      [`${idPrefix}-sharpen`, 'sharpen'],
-      [`${idPrefix}-denoise`, 'denoise'],
-      [`${idPrefix}-fade-in`, 'fadeIn'],
-      [`${idPrefix}-fade-out`, 'fadeOut'],
-    ];
-
-    videoBindings.forEach(([id, key]) => {
-      const input = document.getElementById(id);
-      if (!input) return;
-      input.addEventListener('input', (e) => {
-        const value = parseFloat(e.target.value);
-        if (Number.isNaN(value)) return;
-        editor.state.dispatch(actions.updateClipVideoFilters(clip.id, { [key]: value }));
-      });
-    });
-
-    const rotateInput = document.getElementById(`${idPrefix}-rotate`);
-    if (rotateInput) {
-      rotateInput.addEventListener('change', (e) => {
-        const value = parseInt(e.target.value, 10);
-        if (Number.isNaN(value)) return;
-        editor.state.dispatch(actions.updateClipVideoFilters(clip.id, { rotate: value }));
-      });
+      setActiveTab(activeTab);
+    } else {
+      const mediaName = clipMedia ? escapeHtml(clipMedia.name) : 'Media';
+      propertiesContent.innerHTML = `
+        <div class="properties-header">Media: ${mediaName}</div>
+        ${transcriptMarkup}
+      `;
     }
 
-    const flipHInput = document.getElementById(`${idPrefix}-flip-h`);
-    if (flipHInput) {
-      flipHInput.addEventListener('change', (e) => {
-        editor.state.dispatch(actions.updateClipVideoFilters(clip.id, { flipH: e.target.checked }));
+    const transcriptTabButtons = propertiesContent.querySelectorAll('.transcript-tab');
+    const transcriptTabPanels = propertiesContent.querySelectorAll('.transcript-tab-panel');
+    if (transcriptTabButtons.length > 0) {
+      const setTranscriptTab = (tabId) => {
+        this.transcriptTab = tabId === 'builder' ? 'builder' : 'search';
+        transcriptTabButtons.forEach((button) => {
+          const isActive = button.dataset.transcriptTab === this.transcriptTab;
+          button.classList.toggle('is-active', isActive);
+          button.setAttribute('aria-selected', isActive ? 'true' : 'false');
+        });
+        transcriptTabPanels.forEach((panel) => {
+          const isActive = panel.dataset.transcriptPanel === this.transcriptTab;
+          panel.classList.toggle('is-active', isActive);
+        });
+      };
+      transcriptTabButtons.forEach((button) => {
+        button.addEventListener('click', () => {
+          setTranscriptTab(button.dataset.transcriptTab);
+        });
       });
+      setTranscriptTab(this.transcriptTab);
     }
 
-    const flipVInput = document.getElementById(`${idPrefix}-flip-v`);
-    if (flipVInput) {
-      flipVInput.addEventListener('change', (e) => {
-        editor.state.dispatch(actions.updateClipVideoFilters(clip.id, { flipV: e.target.checked }));
+    if (clip) {
+      // Add event listeners for property changes
+      document.getElementById(`${idPrefix}-name`).addEventListener('input', (e) => {
+        editor.state.dispatch(actions.updateClip(clip.id, { name: e.target.value }));
       });
-    }
 
-    const videoResetBtn = document.getElementById(`${idPrefix}-video-reset`);
-    if (videoResetBtn) {
-      videoResetBtn.addEventListener('click', () => {
-        editor.state.dispatch(actions.clearClipVideoFilters(clip.id));
-        this.render(editor.state.getState());
+      document.getElementById(`${idPrefix}-speed`).addEventListener('input', (e) => {
+        const speed = parseFloat(e.target.value);
+        document.getElementById(`${idPrefix}-speed-value`).textContent = `${speed}x`;
+        editor.state.dispatch(actions.setClipSpeed(clip.id, speed));
       });
-    }
 
-    const audioBindings = [
-      [`${idPrefix}-bass`, 'bass'],
-      [`${idPrefix}-treble`, 'treble'],
-      [`${idPrefix}-pan`, 'pan'],
-      [`${idPrefix}-pitch`, 'pitch'],
-      [`${idPrefix}-audio-fade-in`, 'fadeIn'],
-      [`${idPrefix}-audio-fade-out`, 'fadeOut'],
-    ];
-
-    audioBindings.forEach(([id, key]) => {
-      const input = document.getElementById(id);
-      if (!input) return;
-      input.addEventListener('input', (e) => {
-        const value = parseFloat(e.target.value);
-        if (Number.isNaN(value)) return;
-        editor.state.dispatch(actions.updateClipAudioFilters(clip.id, { [key]: value }));
+      document.getElementById(`${idPrefix}-volume`).addEventListener('input', (e) => {
+        const volume = parseFloat(e.target.value);
+        document.getElementById(`${idPrefix}-volume-value`).textContent = `${Math.round(volume * 100)}%`;
+        editor.state.dispatch(actions.updateClip(clip.id, { volume }));
       });
-    });
 
-    const normalizeInput = document.getElementById(`${idPrefix}-normalize`);
-    if (normalizeInput) {
-      normalizeInput.addEventListener('change', (e) => {
-        editor.state.dispatch(actions.updateClipAudioFilters(clip.id, { normalize: e.target.checked }));
+      document.getElementById(`${idPrefix}-muted`).addEventListener('change', (e) => {
+        editor.state.dispatch(actions.updateClip(clip.id, { muted: e.target.checked }));
       });
-    }
 
-    const audioResetBtn = document.getElementById(`${idPrefix}-audio-reset`);
-    if (audioResetBtn) {
-      audioResetBtn.addEventListener('click', () => {
-        editor.state.dispatch(actions.clearClipAudioFilters(clip.id));
-        editor.state.dispatch(actions.updateClip(clip.id, { volume: undefined }));
-        this.render(editor.state.getState());
+      document.getElementById(`${idPrefix}-visible`).addEventListener('change', (e) => {
+        editor.state.dispatch(actions.updateClip(clip.id, { visible: e.target.checked }));
       });
+
+      document.getElementById(`${idPrefix}-reversed`).addEventListener('change', () => {
+        editor.state.dispatch(actions.reverseClip(clip.id));
+      });
+
+      document.getElementById(`${idPrefix}-color`).addEventListener('input', (e) => {
+        editor.state.dispatch(actions.updateClip(clip.id, { color: e.target.value }));
+      });
+
+      const videoBindings = [
+        [`${idPrefix}-brightness`, 'brightness'],
+        [`${idPrefix}-contrast`, 'contrast'],
+        [`${idPrefix}-saturation`, 'saturation'],
+        [`${idPrefix}-hue`, 'hue'],
+        [`${idPrefix}-gamma`, 'gamma'],
+        [`${idPrefix}-blur`, 'blur'],
+        [`${idPrefix}-sharpen`, 'sharpen'],
+        [`${idPrefix}-denoise`, 'denoise'],
+        [`${idPrefix}-fade-in`, 'fadeIn'],
+        [`${idPrefix}-fade-out`, 'fadeOut'],
+      ];
+
+      videoBindings.forEach(([id, key]) => {
+        const input = document.getElementById(id);
+        if (!input) return;
+        input.addEventListener('input', (e) => {
+          const value = parseFloat(e.target.value);
+          if (Number.isNaN(value)) return;
+          editor.state.dispatch(actions.updateClipVideoFilters(clip.id, { [key]: value }));
+        });
+      });
+
+      const rotateInput = document.getElementById(`${idPrefix}-rotate`);
+      if (rotateInput) {
+        rotateInput.addEventListener('change', (e) => {
+          const value = parseInt(e.target.value, 10);
+          if (Number.isNaN(value)) return;
+          editor.state.dispatch(actions.updateClipVideoFilters(clip.id, { rotate: value }));
+        });
+      }
+
+      const flipHInput = document.getElementById(`${idPrefix}-flip-h`);
+      if (flipHInput) {
+        flipHInput.addEventListener('change', (e) => {
+          editor.state.dispatch(actions.updateClipVideoFilters(clip.id, { flipH: e.target.checked }));
+        });
+      }
+
+      const flipVInput = document.getElementById(`${idPrefix}-flip-v`);
+      if (flipVInput) {
+        flipVInput.addEventListener('change', (e) => {
+          editor.state.dispatch(actions.updateClipVideoFilters(clip.id, { flipV: e.target.checked }));
+        });
+      }
+
+      const videoResetBtn = document.getElementById(`${idPrefix}-video-reset`);
+      if (videoResetBtn) {
+        videoResetBtn.addEventListener('click', () => {
+          editor.state.dispatch(actions.clearClipVideoFilters(clip.id));
+          this.render(editor.state.getState());
+        });
+      }
+
+      const audioBindings = [
+        [`${idPrefix}-bass`, 'bass'],
+        [`${idPrefix}-treble`, 'treble'],
+        [`${idPrefix}-pan`, 'pan'],
+        [`${idPrefix}-pitch`, 'pitch'],
+        [`${idPrefix}-audio-fade-in`, 'fadeIn'],
+        [`${idPrefix}-audio-fade-out`, 'fadeOut'],
+      ];
+
+      audioBindings.forEach(([id, key]) => {
+        const input = document.getElementById(id);
+        if (!input) return;
+        input.addEventListener('input', (e) => {
+          const value = parseFloat(e.target.value);
+          if (Number.isNaN(value)) return;
+          editor.state.dispatch(actions.updateClipAudioFilters(clip.id, { [key]: value }));
+        });
+      });
+
+      const normalizeInput = document.getElementById(`${idPrefix}-normalize`);
+      if (normalizeInput) {
+        normalizeInput.addEventListener('change', (e) => {
+          editor.state.dispatch(actions.updateClipAudioFilters(clip.id, { normalize: e.target.checked }));
+        });
+      }
+
+      const audioResetBtn = document.getElementById(`${idPrefix}-audio-reset`);
+      if (audioResetBtn) {
+        audioResetBtn.addEventListener('click', () => {
+          editor.state.dispatch(actions.clearClipAudioFilters(clip.id));
+          editor.state.dispatch(actions.updateClip(clip.id, { volume: undefined }));
+          this.render(editor.state.getState());
+        });
+      }
     }
 
     const transcriptLoadBtn = document.getElementById(`${idPrefix}-transcript-load`);
@@ -1053,6 +1191,37 @@ export class PropertiesPanel {
       );
       transcriptPage = result.page;
     };
+    const resolveClipForSourceTime = (sourceTime) => {
+      if (!clipMedia || !Number.isFinite(sourceTime)) return null;
+      const currentState = editor.state.getState();
+      let baseClip = null;
+      if (clip) {
+        baseClip = currentState.clips.find(c => c.id === clip.id) || clip;
+        const range = getClipSourceRange(baseClip);
+        if (sourceTime >= range.start && sourceTime <= range.end) {
+          return { clip: baseClip, range };
+        }
+      }
+      const matchingClip = currentState.clips.find((candidate) => {
+        if (candidate.mediaId !== clipMedia.id) return false;
+        const candidateRange = getClipSourceRange(candidate);
+        return sourceTime >= candidateRange.start && sourceTime <= candidateRange.end;
+      });
+      if (matchingClip) {
+        return { clip: matchingClip, range: getClipSourceRange(matchingClip) };
+      }
+      if (baseClip) {
+        return { clip: baseClip, range: getClipSourceRange(baseClip) };
+      }
+      return null;
+    };
+    const seekToSourceTime = (sourceTime) => {
+      const resolved = resolveClipForSourceTime(sourceTime);
+      if (!resolved) return;
+      const time = mapSourceTimeToClipTime(resolved.clip, sourceTime, resolved.range);
+      editor.timeline.scrollToTime(time);
+      editor.state.dispatch(actions.setPlayhead(time), false);
+    };
     if (transcriptSearchInput) {
       transcriptSearchInput.addEventListener('input', () => {
         transcriptPage = 0;
@@ -1065,12 +1234,7 @@ export class PropertiesPanel {
         if (!button) return;
         const storedSourceTime = Number(button.dataset.sourceTime);
         if (!Number.isFinite(storedSourceTime)) return;
-        const currentClip = editor.state.getState().clips.find(c => c.id === clip.id);
-        const resolvedClip = currentClip || clip;
-        const range = getClipSourceRange(resolvedClip);
-        const time = mapSourceTimeToClipTime(resolvedClip, storedSourceTime, range);
-        editor.timeline.scrollToTime(time);
-        editor.state.dispatch(actions.setPlayhead(time), false);
+        seekToSourceTime(storedSourceTime);
       });
     }
     if (transcriptPagination) {
@@ -1088,10 +1252,115 @@ export class PropertiesPanel {
     }
     renderTranscript();
 
-    document.getElementById(`${idPrefix}-delete`).addEventListener('click', () => {
-      editor.state.dispatch(actions.removeClip(clip.id));
-    });
+    const builderInput = document.getElementById(`${idPrefix}-builder-input`);
+    const builderBuildBtn = document.getElementById(`${idPrefix}-builder-build`);
+    const builderClearBtn = document.getElementById(`${idPrefix}-builder-clear`);
+    const builderCopyBtn = document.getElementById(`${idPrefix}-builder-copy`);
+    const builderResultsEl = document.getElementById(`${idPrefix}-builder-results`);
+    if (builderInput) {
+      builderInput.addEventListener('input', (e) => {
+        this.builderState.sentence = e.target.value;
+        if (builderBuildBtn) {
+          builderBuildBtn.disabled = !hasTranscript || !this.builderState.sentence.trim();
+        }
+        if (builderCopyBtn) {
+          builderCopyBtn.disabled = true;
+        }
+        if (builderClearBtn) {
+          builderClearBtn.disabled = !this.builderState.sentence;
+        }
+      });
+    }
+    if (builderBuildBtn) {
+      builderBuildBtn.addEventListener('click', () => {
+        if (!hasTranscript) return;
+        const result = buildSpeechSegments(this.builderState.sentence, mediaTranscript);
+        this.builderState.segments = result.segments;
+        this.builderState.missingCount = result.missingCount;
+        this.builderState.selections = {};
+        result.segments.forEach((segment, index) => {
+          if (segment.options && segment.options.length > 0) {
+            this.builderState.selections[index] = 0;
+          }
+        });
+        this.render(editor.state.getState());
+      });
+    }
+    if (builderClearBtn) {
+      builderClearBtn.addEventListener('click', () => {
+        this.builderState.sentence = '';
+        this.builderState.segments = [];
+        this.builderState.selections = {};
+        this.builderState.missingCount = 0;
+        this.render(editor.state.getState());
+      });
+    }
+    if (builderResultsEl) {
+      builderResultsEl.addEventListener('click', (e) => {
+        const optionButton = e.target.closest('.builder-option');
+        if (!optionButton) return;
+        const segmentIndex = parseInt(optionButton.dataset.segmentIndex, 10);
+        const optionIndex = parseInt(optionButton.dataset.optionIndex, 10);
+        if (!Number.isFinite(segmentIndex) || !Number.isFinite(optionIndex)) return;
+        this.builderState.selections[segmentIndex] = optionIndex;
+        const segmentButtons = builderResultsEl.querySelectorAll(
+          `.builder-option[data-segment-index="${segmentIndex}"]`
+        );
+        segmentButtons.forEach((button) => {
+          button.classList.toggle('is-selected', button === optionButton);
+          button.setAttribute('aria-pressed', button === optionButton ? 'true' : 'false');
+        });
 
-    decorateSliders();
+        const segment = this.builderState.segments[segmentIndex];
+        if (!segment || !Array.isArray(segment.options)) return;
+        const option = segment.options[optionIndex];
+        if (!option || !Number.isFinite(option.start)) return;
+        seekToSourceTime(option.start);
+      });
+    }
+    if (builderCopyBtn) {
+      builderCopyBtn.addEventListener('click', () => {
+        if (!builderHasResults || builderMissingCount > 0) return;
+        const mediaId = clip ? clip.mediaId : (clipMedia ? clipMedia.id : null);
+        if (!mediaId) return;
+        const trackId = clip ? clip.trackId : 0;
+        const baseName = clip ? clip.name : (clipMedia ? clipMedia.name : 'Media');
+        const baseColor = clip ? clip.color : '#4a9eff';
+        let insertTime = 0;
+        let inserted = 0;
+        const clipsToCopy = [];
+        this.builderState.segments.forEach((segment, index) => {
+          const options = segment.options || [];
+          if (options.length === 0) return;
+          const selectedIndex = this.builderState.selections[index] ?? 0;
+          const option = options[selectedIndex] || options[0];
+          const duration = Math.max(0, option.end - option.start);
+          if (duration <= 0) return;
+          clipsToCopy.push({
+            name: segment.label || baseName,
+            mediaId,
+            trackId,
+            start: insertTime,
+            duration,
+            trimStart: option.start,
+            color: baseColor,
+          });
+          insertTime += duration;
+          inserted += 1;
+        });
+        if (inserted > 0) {
+          window._ytpClipboard = { clips: clipsToCopy };
+          editor.updateStatus(`Copied ${inserted} builder clip${inserted === 1 ? '' : 's'} to clipboard`);
+        }
+      });
+    }
+
+    if (clip) {
+      document.getElementById(`${idPrefix}-delete`).addEventListener('click', () => {
+        editor.state.dispatch(actions.removeClip(clip.id));
+      });
+
+      decorateSliders();
+    }
   }
 }

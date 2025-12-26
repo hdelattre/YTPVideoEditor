@@ -53,6 +53,7 @@ class YTPEditor {
     this.pendingReassociateMediaId = null;
     this.hasExternalSeek = false;
     this.lastPropertiesClipId = null;
+    this.lastPropertiesMediaId = null;
     this.lastPropertiesSignature = null;
 
     // Initialize keyboard shortcuts
@@ -351,11 +352,15 @@ class YTPEditor {
     const { signature: selectedSignature } = this.getSelectedClipSignature(state);
     const isEditing = this.propertiesContent && this.propertiesContent.contains(document.activeElement);
     const clipChanged = state.selectedClipId !== this.lastPropertiesClipId;
-    const shouldRenderProperties = clipChanged || (!isEditing && selectedSignature !== this.lastPropertiesSignature);
+    const mediaChanged = state.selectedMediaId !== this.lastPropertiesMediaId;
+    const shouldRenderProperties = clipChanged
+      || mediaChanged
+      || (!isEditing && selectedSignature !== this.lastPropertiesSignature);
 
     if (shouldRenderProperties) {
       this.propertiesPanel.render(state);
       this.lastPropertiesClipId = state.selectedClipId;
+      this.lastPropertiesMediaId = state.selectedMediaId;
       this.lastPropertiesSignature = selectedSignature;
     }
 
@@ -379,6 +384,18 @@ class YTPEditor {
       : (state.selectedClipId ? [state.selectedClipId] : []);
 
     if (selectedIds.length === 0) {
+      if (state.selectedMediaId) {
+        const media = state.mediaLibrary.find(m => m.id === state.selectedMediaId);
+        const transcript = media && media.transcript ? media.transcript : null;
+        const transcriptSignature = transcript
+          ? `${transcript.loadedAt || 0}:${transcript.cues ? transcript.cues.length : 0}`
+          : '';
+        const signature = [
+          state.selectedMediaId,
+          transcriptSignature,
+        ].join('|');
+        return { clip: null, signature };
+      }
       const exportSettings = this.getExportSettings(state);
       const signature = [
         JSON.stringify(exportSettings),
@@ -643,6 +660,7 @@ class YTPEditor {
     this.lastPreviewVideoClipId = null;
     this.lastPreviewAudioClipId = null;
     this.lastPropertiesClipId = null;
+    this.lastPropertiesMediaId = null;
     this.lastPropertiesSignature = null;
     this.updateStatus('New project created (unsaved)');
   }
@@ -803,6 +821,7 @@ class YTPEditor {
     this.lastPreviewVideoClipId = null;
     this.lastPreviewAudioClipId = null;
     this.lastPropertiesClipId = null;
+    this.lastPropertiesMediaId = null;
     this.lastPropertiesSignature = null;
     this.updateStatus(statusMessage);
   }

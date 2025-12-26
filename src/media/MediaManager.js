@@ -217,8 +217,9 @@ export class MediaManager {
 
     state.mediaLibrary.forEach(media => {
       const isMissing = !this.editor.mediaFiles || !this.editor.mediaFiles.has(media.id);
+      const isSelected = !isMissing && state.selectedMediaId === media.id;
       const item = document.createElement('div');
-      item.className = `media-item${isMissing ? ' missing' : ''}`;
+      item.className = `media-item${isMissing ? ' missing' : ''}${isSelected ? ' selected' : ''}`;
       item.draggable = !isMissing;
       if (isMissing) {
         item.title = 'File missing - click to relink';
@@ -258,6 +259,11 @@ export class MediaManager {
       if (isMissing) {
         item.addEventListener('click', () => {
           this.requestMediaReassociate(media);
+          this.editor.state.dispatch(actions.selectMedia(null));
+        });
+      } else {
+        item.addEventListener('click', () => {
+          this.editor.state.dispatch(actions.selectMedia(media.id));
         });
       }
 

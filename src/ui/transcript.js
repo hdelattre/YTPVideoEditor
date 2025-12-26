@@ -8,7 +8,7 @@ import { getClipSourceRange } from '../utils/clipTiming.js';
 
 /**
  * Render transcript search results for a clip
- * @param {import('../core/types.js').Clip} clip
+ * @param {import('../core/types.js').Clip|null} clip
  * @param {import('../core/types.js').Transcript|null} transcript
  * @param {string} query
  * @param {HTMLElement|null} container
@@ -27,12 +27,12 @@ export function renderTranscriptResults(clip, transcript, query, container, pagi
   }
 
   const search = query ? query.trim().toLowerCase() : '';
-  const range = getClipSourceRange(clip);
+  const range = clip ? getClipSourceRange(clip) : null;
   const matches = [];
 
   transcript.cues.forEach((cue) => {
     if (!cue || !Number.isFinite(cue.start) || !Number.isFinite(cue.end)) return;
-    if (cue.end <= range.start || cue.start >= range.end) return;
+    if (range && (cue.end <= range.start || cue.start >= range.end)) return;
     if (search && (!cue.text || !cue.text.toLowerCase().includes(search))) return;
     matches.push({ sourceTime: cue.start, text: cue.text || '' });
   });

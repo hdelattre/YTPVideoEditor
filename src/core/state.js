@@ -49,6 +49,7 @@ export class StateManager {
       zoom: 0,
       selectedClipId: null,
       selectedClipIds: [],
+      selectedMediaId: null,
       isPlaying: false,
       exportState: {
         isExporting: false,
@@ -231,6 +232,9 @@ export class StateManager {
         loadedState.selectedClipIds = loadedState.selectedClipId
           ? [loadedState.selectedClipId]
           : [];
+      }
+      if (typeof loadedState.selectedMediaId !== 'string') {
+        loadedState.selectedMediaId = null;
       }
       const defaultExportSettings = createDefaultExportSettings();
       loadedState.exportSettings = {
