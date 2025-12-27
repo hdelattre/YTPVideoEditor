@@ -280,6 +280,24 @@ export class Canvas2DRenderer extends Renderer {
   }
 
   /**
+   * Draw selection rectangle
+   * @param {number} x
+   * @param {number} y
+   * @param {number} width
+   * @param {number} height
+   */
+  drawSelectionRect(x, y, width, height) {
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.fillStyle = 'rgba(74, 158, 255, 0.15)';
+    ctx.strokeStyle = 'rgba(74, 158, 255, 0.6)';
+    ctx.lineWidth = 1;
+    ctx.fillRect(x, y, width, height);
+    ctx.strokeRect(x, y, width, height);
+    ctx.restore();
+  }
+
+  /**
    * Clear the entire canvas
    */
   clear() {

@@ -181,6 +181,14 @@ export class Timeline {
       this.drawClip(clip, state);
     });
 
+    // Draw selection rectangle
+    if (this.dragState && this.dragState.type === 'select' && this.dragState.didMove) {
+      const rect = this.getSelectionRect(state, this.dragState);
+      if (rect && rect.width > 0 && rect.height > 0) {
+        this.renderer.drawSelectionRect(rect.x, rect.y, rect.width, rect.height);
+      }
+    }
+
     // Draw playhead
     const playheadX = timeToPixels(state.playhead, state.zoom) - this.scrollX;
     if (playheadX >= 0 && playheadX <= visibleWidth) {
@@ -201,6 +209,58 @@ export class Timeline {
       // Clip is visible if it overlaps with viewport
       return clipEnd >= startTime && clip.start <= endTime;
     });
+  }
+
+  /**
+   * Get selection rectangle in canvas coordinates
+   * @param {import('../core/types.js').EditorState} state
+   * @param {object} dragState
+   * @returns {{x: number, y: number, width: number, height: number}|null}
+   */
+  getSelectionRect(state, dragState) {
+    if (!dragState) return null;
+    const startX = dragState.startX;
+    const startY = dragState.startY;
+    const currentX = dragState.currentX ?? startX;
+    const currentY = dragState.currentY ?? startY;
+    const x1 = Math.min(startX, currentX);
+    const x2 = Math.max(startX, currentX);
+    const y1 = Math.min(startY, currentY);
+    const y2 = Math.max(startY, currentY);
+    const maxY = RULER_HEIGHT + state.tracks.length * TRACK_HEIGHT;
+    const top = Math.max(RULER_HEIGHT, y1);
+    const bottom = Math.min(maxY, y2);
+    const width = Math.max(0, x2 - x1);
+    const height = Math.max(0, bottom - top);
+    return { x: x1, y: top, width, height };
+  }
+
+  /**
+   * Get clip IDs inside a selection rectangle
+   * @param {import('../core/types.js').EditorState} state
+   * @param {{x: number, y: number, width: number, height: number}} rect
+   * @returns {string[]}
+   */
+  getClipsInRect(state, rect) {
+    if (!rect || rect.width <= 0 || rect.height <= 0) return [];
+    const ids = [];
+    state.clips.forEach((clip) => {
+      const track = state.tracks.find(t => t.id === clip.trackId);
+      if (!track || !track.visible) return;
+      const trackIndex = state.tracks.indexOf(track);
+      const x = timeToPixels(clip.start, state.zoom) - this.scrollX;
+      const y = RULER_HEIGHT + trackIndex * TRACK_HEIGHT + 2;
+      const width = Math.max(MIN_CLIP_WIDTH, timeToPixels(clip.duration, state.zoom));
+      const height = TRACK_HEIGHT - 4;
+      const intersects = x < rect.x + rect.width &&
+        x + width > rect.x &&
+        y < rect.y + rect.height &&
+        y + height > rect.y;
+      if (intersects) {
+        ids.push(clip.id);
+      }
+    });
+    return ids;
   }
 
   /**
@@ -350,10 +410,24 @@ export class Timeline {
         didUpdate: false,
       };
     } else {
-      // Deselect if clicking on empty space
-      if (!e.ctrlKey && !e.metaKey && !e.shiftKey) {
-        this.state.dispatch(actions.setSelection([], null));
-      }
+      const mode = e.altKey
+        ? 'subtract'
+        : (e.ctrlKey || e.metaKey)
+          ? 'toggle'
+          : e.shiftKey
+            ? 'add'
+            : 'replace';
+      this.dragState = {
+        type: 'select',
+        startX: x,
+        startY: y,
+        currentX: x,
+        currentY: y,
+        mode,
+        didMove: false,
+        threshold: 4,
+      };
+      this.canvas.style.cursor = 'crosshair';
     }
   }
 
@@ -477,6 +551,18 @@ export class Timeline {
           this.dragState.didUpdate = true;
         }
       }
+    } else if (this.dragState.type === 'select') {
+      this.dragState.currentX = x;
+      this.dragState.currentY = y;
+      const moveX = x - this.dragState.startX;
+      const moveY = y - this.dragState.startY;
+      if (!this.dragState.didMove &&
+          Math.hypot(moveX, moveY) >= (this.dragState.threshold || 4)) {
+        this.dragState.didMove = true;
+      }
+      if (this.dragState.didMove) {
+        this.render(state);
+      }
     }
   }
 
@@ -485,6 +571,44 @@ export class Timeline {
    * @param {PointerEvent} e
    */
   onPointerUp(e) {
+    if (this.dragState && this.dragState.type === 'select') {
+      const dragState = this.dragState;
+      const state = this.state.getState();
+      this.dragState = null;
+      this.canvas.style.cursor = 'default';
+      if (dragState.didMove) {
+        const rect = this.getSelectionRect(state, dragState);
+        const hits = this.getClipsInRect(state, rect);
+        const existing = new Set(Array.isArray(state.selectedClipIds) ? state.selectedClipIds : []);
+        let nextIds = [];
+        if (dragState.mode === 'replace') {
+          nextIds = hits;
+        } else if (dragState.mode === 'add') {
+          hits.forEach(id => existing.add(id));
+          nextIds = Array.from(existing);
+        } else if (dragState.mode === 'subtract') {
+          hits.forEach(id => existing.delete(id));
+          nextIds = Array.from(existing);
+        } else if (dragState.mode === 'toggle') {
+          hits.forEach((id) => {
+            if (existing.has(id)) {
+              existing.delete(id);
+            } else {
+              existing.add(id);
+            }
+          });
+          nextIds = Array.from(existing);
+        }
+        const primary = nextIds.includes(state.selectedClipId)
+          ? state.selectedClipId
+          : (nextIds[0] || null);
+        this.state.dispatch(actions.setSelection(nextIds, primary));
+      } else if (dragState.mode === 'replace') {
+        this.state.dispatch(actions.setSelection([], null));
+      }
+      return;
+    }
+
     if (this.dragState && this.dragState.historySnapshot && this.dragState.didUpdate) {
       this.state.dispatch(state => state, true, this.dragState.historySnapshot);
     }

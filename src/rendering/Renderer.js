@@ -98,6 +98,18 @@ export class Renderer {
   }
 
   /**
+   * Draw selection rectangle
+   * @abstract
+   * @param {number} x
+   * @param {number} y
+   * @param {number} width
+   * @param {number} height
+   */
+  drawSelectionRect(x, y, width, height) {
+    throw new Error('drawSelectionRect must be implemented by subclass');
+  }
+
+  /**
    * Clear the entire canvas
    * @abstract
    */
