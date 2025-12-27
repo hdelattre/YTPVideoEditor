@@ -50,6 +50,7 @@ export const SHORTCUTS = {
   REDO: 'Ctrl+Shift+z',
   COPY: 'Ctrl+c',
   PASTE: 'Ctrl+v',
+  SELECT_ALL: 'Ctrl+a',
   REVERSE: 'r',
   SPEED_UP: ']',
   SPEED_DOWN: '[',

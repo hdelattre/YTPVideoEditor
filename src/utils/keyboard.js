@@ -46,6 +46,7 @@ export class KeyboardManager {
     // Clipboard (basic implementation)
     this.register(SHORTCUTS.COPY, () => this.copyClip());
     this.register(SHORTCUTS.PASTE, () => this.pasteClip());
+    this.register(SHORTCUTS.SELECT_ALL, () => this.selectAllClips());
 
     // YTP-specific
     this.register(SHORTCUTS.REVERSE, () => this.reverseClip());
@@ -229,6 +230,19 @@ export class KeyboardManager {
     }));
 
     console.log('Clip pasted');
+  }
+
+  /**
+   * Select all clips on the timeline
+   */
+  selectAllClips() {
+    const state = this.state.getState();
+    const allIds = state.clips.map(clip => clip.id);
+    if (allIds.length === 0) return;
+    const primary = state.selectedClipId && allIds.includes(state.selectedClipId)
+      ? state.selectedClipId
+      : allIds[0];
+    this.state.dispatch(actions.setSelection(allIds, primary));
   }
 
   /**
