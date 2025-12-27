@@ -8,6 +8,10 @@
   padding: 0;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 :root {
   --color-bg: #1a1a1a;
   --color-bg-light: #242424;
