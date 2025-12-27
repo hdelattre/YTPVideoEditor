@@ -2,6 +2,7 @@
  * @fileoverview FFmpeg export pipeline helpers
  */
 
+import { DEFAULT_AUDIO_FILTERS, DEFAULT_VIDEO_FILTERS } from '../core/constants.js';
 import { escapeShellArg, formatSeconds } from '../utils/format.js';
 
 /**
@@ -35,7 +36,7 @@ export function getExportResolution(state) {
  *  resolveAudioFilters: (clip: import('../core/types.js').Clip, defaults: import('../core/types.js').DefaultFilters) => import('../core/types.js').ClipAudioFilters,
  *  resolveClipVolume: (clip: import('../core/types.js').Clip, defaults: import('../core/types.js').DefaultFilters) => number,
  * }} options
- * @returns {{command: string, exportAudioWarning: boolean}|null}
+ * @returns {{command: string, exportAudioWarning: boolean, usedLosslessCopy: boolean}|null}
  */
 export function buildFfmpegExportCommand(state, options) {
   const {
@@ -82,6 +83,22 @@ export function buildFfmpegExportCommand(state, options) {
   if (segments.length === 0) return null;
 
   const mediaById = new Map(state.mediaLibrary.map(media => [media.id, media]));
+  if (exportSettings.allowLosslessCopy !== false) {
+    const copyCommand = buildConcatCopyCommand({
+      segments,
+      mediaById,
+      exportSettings,
+      defaultFilters,
+      mediaInfo,
+      resolveVideoFilters,
+      resolveAudioFilters,
+      resolveClipVolume,
+    });
+    if (copyCommand) {
+    return copyCommand;
+  }
+  }
+
   const inputList = [];
   const mediaIndexById = new Map();
 
@@ -359,7 +376,153 @@ export function buildFfmpegExportCommand(state, options) {
       `${videoFlags.join(' ')} ${audioFlags.join(' ')}` +
       `${movFlags} -y output.${outputFormat}`,
     exportAudioWarning,
+    usedLosslessCopy: false,
   };
+}
+
+/**
+ * Build a concat-demuxer copy command when the timeline has no effects.
+ * @param {{
+ *  segments: Array<{audioClip: import('../core/types.js').Clip|null, videoClip: import('../core/types.js').Clip|null, start: number, end: number}>,
+ *  mediaById: Map<string, import('../core/types.js').Media>,
+ *  exportSettings: import('../core/types.js').ExportSettings,
+ *  defaultFilters: import('../core/types.js').DefaultFilters,
+ *  mediaInfo: Map<string, {hasAudio: boolean|null, hasVideo: boolean|null, isAudioOnly: boolean, isVideoType: boolean}>|null,
+ *  resolveVideoFilters: (clip: import('../core/types.js').Clip, defaults: import('../core/types.js').DefaultFilters) => import('../core/types.js').ClipVideoFilters,
+ *  resolveAudioFilters: (clip: import('../core/types.js').Clip, defaults: import('../core/types.js').DefaultFilters) => import('../core/types.js').ClipAudioFilters,
+ *  resolveClipVolume: (clip: import('../core/types.js').Clip, defaults: import('../core/types.js').DefaultFilters) => number,
+ * }} options
+ * @returns {{command: string, exportAudioWarning: boolean, usedLosslessCopy: boolean}|null}
+ */
+function buildConcatCopyCommand(options) {
+  const {
+    segments,
+    mediaById,
+    exportSettings,
+    defaultFilters,
+    mediaInfo,
+    resolveVideoFilters,
+    resolveAudioFilters,
+    resolveClipVolume,
+  } = options;
+
+  if (!segments || segments.length === 0) return null;
+
+  let sourceMediaId = null;
+  let exportAudioWarning = false;
+  const concatLines = [];
+
+  for (const segment of segments) {
+    const durationMs = segment.end - segment.start;
+    if (durationMs <= 0) return null;
+    if (!segment.videoClip || !segment.audioClip) return null;
+    if (segment.videoClip.id !== segment.audioClip.id) return null;
+
+    const clip = segment.videoClip;
+    if (!isCopySafeClip(clip, defaultFilters, resolveVideoFilters, resolveAudioFilters, resolveClipVolume)) {
+      return null;
+    }
+
+    if (!sourceMediaId) {
+      sourceMediaId = clip.mediaId;
+    } else if (sourceMediaId !== clip.mediaId) {
+      return null;
+    }
+
+    const media = mediaById.get(clip.mediaId);
+    if (!media) return null;
+
+    const info = mediaInfo ? mediaInfo.get(media.id) : null;
+    const isAudioOnly = media.type && media.type.startsWith('audio/');
+    const isVideoType = media.type && media.type.startsWith('video/');
+    const hasVideo = info ? info.hasVideo !== false : (isVideoType || !isAudioOnly);
+    const hasAudio = info ? info.hasAudio !== false : (isAudioOnly || isVideoType);
+    if (!hasVideo || !hasAudio) return null;
+    if (!info || info.hasAudio === null || info.hasAudio === undefined) {
+      exportAudioWarning = true;
+    }
+
+    const sourceWindow = getClipSourceWindow(clip, segment.start, durationMs);
+    concatLines.push(`file 'file:${escapeConcatFilePath(media.name)}'`);
+    concatLines.push(`inpoint ${sourceWindow.startSec}`);
+    concatLines.push(`outpoint ${sourceWindow.endSec}`);
+  }
+
+  if (!sourceMediaId) return null;
+
+  const concatPayload = `${concatLines.join('\\n')}\\n`;
+  const concatArg = escapeForSingleQuotes(concatPayload);
+  const outputFormat = exportSettings.format || 'mp4';
+  const movFlags = (outputFormat === 'mp4' || outputFormat === 'mov')
+    ? ' -movflags +faststart'
+    : '';
+
+  return {
+    command: `printf '%b' '${concatArg}' | ` +
+      `ffmpeg -f concat -safe 0 ` +
+      `-protocol_whitelist file,pipe,fd,crypto,data -i - ` +
+      `-c copy${movFlags} -y output.${outputFormat}`,
+    exportAudioWarning,
+    usedLosslessCopy: true,
+  };
+}
+
+function isCopySafeClip(clip, defaults, resolveVideoFilters, resolveAudioFilters, resolveClipVolume) {
+  const speed = clip.speed === undefined ? 1 : clip.speed;
+  if (speed !== 1) return false;
+  if (clip.reversed) return false;
+  if (clip.muted) return false;
+  if (clip.visible === false) return false;
+
+  const videoFilters = resolveVideoFilters(clip, defaults);
+  if (!isNeutralVideoFilters(videoFilters)) return false;
+
+  const audioFilters = resolveAudioFilters(clip, defaults);
+  if (!isNeutralAudioFilters(audioFilters)) return false;
+
+  const volume = resolveClipVolume(clip, defaults);
+  if (!Number.isFinite(volume) || volume !== 1) return false;
+
+  return true;
+}
+
+function isNeutralVideoFilters(filters) {
+  return (
+    filters.brightness === DEFAULT_VIDEO_FILTERS.brightness &&
+    filters.contrast === DEFAULT_VIDEO_FILTERS.contrast &&
+    filters.saturation === DEFAULT_VIDEO_FILTERS.saturation &&
+    filters.hue === DEFAULT_VIDEO_FILTERS.hue &&
+    filters.gamma === DEFAULT_VIDEO_FILTERS.gamma &&
+    filters.rotate === DEFAULT_VIDEO_FILTERS.rotate &&
+    filters.flipH === DEFAULT_VIDEO_FILTERS.flipH &&
+    filters.flipV === DEFAULT_VIDEO_FILTERS.flipV &&
+    filters.blur === DEFAULT_VIDEO_FILTERS.blur &&
+    filters.sharpen === DEFAULT_VIDEO_FILTERS.sharpen &&
+    filters.denoise === DEFAULT_VIDEO_FILTERS.denoise &&
+    filters.fadeIn === DEFAULT_VIDEO_FILTERS.fadeIn &&
+    filters.fadeOut === DEFAULT_VIDEO_FILTERS.fadeOut
+  );
+}
+
+function isNeutralAudioFilters(filters) {
+  return (
+    filters.volume === DEFAULT_AUDIO_FILTERS.volume &&
+    filters.bass === DEFAULT_AUDIO_FILTERS.bass &&
+    filters.treble === DEFAULT_AUDIO_FILTERS.treble &&
+    filters.normalize === DEFAULT_AUDIO_FILTERS.normalize &&
+    filters.pan === DEFAULT_AUDIO_FILTERS.pan &&
+    filters.pitch === DEFAULT_AUDIO_FILTERS.pitch &&
+    filters.fadeIn === DEFAULT_AUDIO_FILTERS.fadeIn &&
+    filters.fadeOut === DEFAULT_AUDIO_FILTERS.fadeOut
+  );
+}
+
+function escapeConcatFilePath(value) {
+  return String(value).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
+function escapeForSingleQuotes(value) {
+  return String(value).replace(/'/g, `'\\''`);
 }
 
 /**

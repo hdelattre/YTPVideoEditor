@@ -124,6 +124,12 @@ class YTPEditor {
     this.exportCommandInput = document.getElementById('exportCommandInput');
     this.exportCommandCopyBtn = document.getElementById('exportCommandCopyBtn');
     this.exportCommandCloseBtn = document.getElementById('exportCommandCloseBtn');
+    this.exportModal = document.getElementById('exportModal');
+    this.exportModalMessage = document.getElementById('exportModalMessage');
+    this.exportModalCloseBtn = document.getElementById('exportModalCloseBtn');
+    this.exportLosslessBtn = document.getElementById('exportLosslessBtn');
+    this.exportReencodeBtn = document.getElementById('exportReencodeBtn');
+    this.exportCancelBtn = document.getElementById('exportCancelBtn');
     this.projectModal = document.getElementById('projectModal');
     this.projectModalMessage = document.getElementById('projectModalMessage');
     this.projectModalCloseBtn = document.getElementById('projectModalCloseBtn');
@@ -163,6 +169,7 @@ class YTPEditor {
     this.mobileMediaPanelBtn = document.getElementById('mobileMediaPanelBtn');
     this.mobilePropertiesPanelBtn = document.getElementById('mobilePropertiesPanelBtn');
     this.mobileProjectBtn = document.getElementById('mobileProjectBtn');
+    this.pendingExportCommands = null;
     this.reassociateInput = document.createElement('input');
     this.reassociateInput.type = 'file';
     this.reassociateInput.accept = 'video/*,audio/*';
@@ -295,6 +302,30 @@ class YTPEditor {
     if (this.exportCommandCloseBtn) {
       this.exportCommandCloseBtn.addEventListener('click', () => {
         this.hideExportCommand();
+      });
+    }
+
+    if (this.exportModalCloseBtn) {
+      this.exportModalCloseBtn.addEventListener('click', () => this.hideExportModal());
+    }
+
+    if (this.exportLosslessBtn) {
+      this.exportLosslessBtn.addEventListener('click', () => this.handleExportChoice('lossless'));
+    }
+
+    if (this.exportReencodeBtn) {
+      this.exportReencodeBtn.addEventListener('click', () => this.handleExportChoice('reencode'));
+    }
+
+    if (this.exportCancelBtn) {
+      this.exportCancelBtn.addEventListener('click', () => this.hideExportModal());
+    }
+
+    if (this.exportModal) {
+      this.exportModal.addEventListener('click', (e) => {
+        if (e.target === this.exportModal) {
+          this.hideExportModal();
+        }
       });
     }
 
@@ -893,6 +924,49 @@ class YTPEditor {
   }
 
   /**
+   * Show export mode modal
+   */
+  showExportModal() {
+    if (!this.exportModal) return;
+    if (this.exportModalMessage) {
+      this.exportModalMessage.textContent = 'Lossless export is available. Lossless ignores export settings and can flicker at non-keyframe cuts; re-encode applies settings and avoids keyframe artifacts.';
+    }
+    this.exportModal.style.display = 'flex';
+  }
+
+  /**
+   * Hide export mode modal
+   */
+  hideExportModal() {
+    if (this.exportModal) {
+      this.exportModal.style.display = 'none';
+    }
+    this.pendingExportCommands = null;
+  }
+
+  /**
+   * Handle export mode selection
+   * @param {'lossless'|'reencode'} mode
+   */
+  handleExportChoice(mode) {
+    const pending = this.pendingExportCommands;
+    this.hideExportModal();
+    if (!pending) {
+      this.updateStatus('Nothing to export');
+      return;
+    }
+    const result = mode === 'lossless' ? pending.lossless : pending.reencode;
+    if (!result || !result.command) {
+      this.updateStatus('Nothing to export');
+      return;
+    }
+    const warningMessage = result.exportAudioWarning
+      ? 'FFmpeg command ready (some audio tracks undetected; preview those clips to detect)'
+      : null;
+    this.copyExportCommand(result.command, warningMessage);
+  }
+
+  /**
    * Export project JSON to a file
    */
   exportProject() {
@@ -959,23 +1033,45 @@ class YTPEditor {
    */
   exportVideo() {
     const state = this.state.getState();
-    const result = buildFfmpegExportCommand(state, {
-      exportSettings: this.getExportSettings(state),
-      defaultFilters: this.getDefaultFilters(state),
+    const exportSettings = this.getExportSettings(state);
+    const defaultFilters = this.getDefaultFilters(state);
+    const buildCommand = (allowLosslessCopy) => buildFfmpegExportCommand(state, {
+      exportSettings: { ...exportSettings, allowLosslessCopy },
+      defaultFilters,
       mediaInfo: this.mediaInfo,
       resolveVideoFilters: this.resolveVideoFilters.bind(this),
       resolveAudioFilters: this.resolveAudioFilters.bind(this),
       resolveClipVolume: this.resolveClipVolume.bind(this),
     });
-    if (!result || !result.command) {
+
+    const losslessResult = buildCommand(true);
+    if (!losslessResult || !losslessResult.command) {
       this.updateStatus('Nothing to export');
       return;
     }
 
-    const warningMessage = result.exportAudioWarning
+    if (losslessResult.usedLosslessCopy && this.exportModal) {
+      const reencodeResult = buildCommand(false);
+      if (!reencodeResult || !reencodeResult.command) {
+        const warningMessage = losslessResult.exportAudioWarning
+          ? 'FFmpeg command ready (some audio tracks undetected; preview those clips to detect)'
+          : null;
+        this.copyExportCommand(losslessResult.command, warningMessage);
+        return;
+      }
+      this.pendingExportCommands = {
+        lossless: losslessResult,
+        reencode: reencodeResult,
+      };
+      this.hideExportCommand();
+      this.showExportModal();
+      return;
+    }
+
+    const warningMessage = losslessResult.exportAudioWarning
       ? 'FFmpeg command ready (some audio tracks undetected; preview those clips to detect)'
       : null;
-    this.copyExportCommand(result.command, warningMessage);
+    this.copyExportCommand(losslessResult.command, warningMessage);
   }
 
   /**

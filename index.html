@@ -162,6 +162,24 @@
         </div>
     </div>
 
+    <!-- Export modal -->
+    <div id="exportModal" class="modal" style="display:none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Export</h3>
+                <button class="close-btn" id="exportModalCloseBtn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p id="exportModalMessage" class="modal-message"></p>
+                <div class="modal-actions">
+                    <button id="exportReencodeBtn" class="btn btn-primary">Re-encode</button>
+                    <button id="exportLosslessBtn" class="btn btn-secondary">Lossless Copy</button>
+                    <button id="exportCancelBtn" class="btn btn-secondary">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script type="module" src="src/main.js"></script>
 </body>
 </html>

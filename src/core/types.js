@@ -90,6 +90,7 @@
  * @property {string} format
  * @property {number} rangeStart - export start time in ms
  * @property {number|null} rangeEnd - export end time in ms, null for full length
+ * @property {boolean} allowLosslessCopy - allow concat copy when possible
  */
 
 /**
