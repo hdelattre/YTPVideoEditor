@@ -143,6 +143,7 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  min-height: 0;
 }
 
 /* Preview section */
@@ -161,6 +162,7 @@ body {
   align-items: center;
   justify-content: center;
   padding: var(--spacing-md);
+  min-height: 0;
 }
 
 #previewCanvas {
@@ -199,6 +201,7 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  min-height: 0;
 }
 
 .timeline-toolbar {
