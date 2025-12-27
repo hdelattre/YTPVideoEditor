@@ -792,12 +792,25 @@ export class Timeline {
     const track = state.tracks[trackIndex];
     const time = pixelsToTime(x + this.scrollX, state.zoom);
 
-    // Find clip at this time and track
-    return state.clips.find(clip =>
-      clip.trackId === track.id &&
-      time >= clip.start &&
-      time < clip.start + clip.duration
-    ) || null;
+    const selectedIds = Array.isArray(state.selectedClipIds) ? state.selectedClipIds : [];
+
+    // Prefer interacting with an already selected clip when multiple overlap.
+    // Otherwise, prefer the topmost (last rendered) clip.
+    let topmost = null;
+    for (let i = state.clips.length - 1; i >= 0; i -= 1) {
+      const clip = state.clips[i];
+      if (clip.trackId !== track.id) continue;
+      if (time < clip.start || time >= clip.start + clip.duration) continue;
+
+      if (clip.id === state.selectedClipId || selectedIds.includes(clip.id)) {
+        return clip;
+      }
+      if (!topmost) {
+        topmost = clip;
+      }
+    }
+
+    return topmost;
   }
 
   /**
