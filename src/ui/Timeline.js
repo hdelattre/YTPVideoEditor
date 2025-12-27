@@ -73,9 +73,57 @@ export class Timeline {
     const isSmallScreen = typeof window !== 'undefined'
       && typeof window.matchMedia === 'function'
       && window.matchMedia('(max-width: 900px)').matches;
-    const base = isTouch ? 16 : (isSmallScreen ? 10 : 6);
+    const base = isTouch ? 22 : (isSmallScreen ? 12 : 6);
     const maxSlop = Math.max(6, Math.floor(clipWidthPx / 2));
     return Math.min(base, maxSlop);
+  }
+
+  /**
+   * Get resize handle slop for inside vs outside the clip bounds.
+   * Outside slop is intentionally larger so users can grab handles by aiming just past the edge.
+   * @param {number} clipWidthPx
+   * @param {string} pointerType
+   * @returns {{interior: number, exterior: number}}
+   */
+  getResizeHandleSlopPx(clipWidthPx, pointerType) {
+    const isTouch = pointerType === 'touch' || pointerType === 'pen';
+    const isSmallScreen = typeof window !== 'undefined'
+      && typeof window.matchMedia === 'function'
+      && window.matchMedia('(max-width: 900px)').matches;
+    const exterior = isTouch ? 28 : (isSmallScreen ? 14 : 6);
+    const interior = this.getResizeHandleHitSlopPx(clipWidthPx, pointerType);
+    return { interior, exterior: Math.max(interior, exterior) };
+  }
+
+  /**
+   * Determine which resize handle (if any) is being targeted.
+   * For very small clips, dragging from inside the clip prefers move; dragging just outside prefers resize.
+   * @param {number} x
+   * @param {number} clipX
+   * @param {number} clipWidthPx
+   * @param {string} pointerType
+   * @returns {'left'|'right'|null}
+   */
+  getResizeHandleAtX(x, clipX, clipWidthPx, pointerType) {
+    const leftDist = Math.abs(x - clipX);
+    const rightDist = Math.abs(x - (clipX + clipWidthPx));
+    const inside = x >= clipX && x <= clipX + clipWidthPx;
+    const slop = this.getResizeHandleSlopPx(clipWidthPx, pointerType);
+    const threshold = inside ? slop.interior : slop.exterior;
+    const isLeftHandle = leftDist < threshold;
+    const isRightHandle = rightDist < threshold;
+
+    if (!isLeftHandle && !isRightHandle) return null;
+    if (isLeftHandle && !isRightHandle) return 'left';
+    if (isRightHandle && !isLeftHandle) return 'right';
+
+    if (inside) {
+      // If the pointer is inside a tiny clip and close to both edges, prefer move.
+      const diff = Math.abs(leftDist - rightDist);
+      if (diff < 3) return null;
+    }
+
+    return leftDist <= rightDist ? 'left' : 'right';
   }
 
   setupScrollbar() {
@@ -415,28 +463,26 @@ export class Timeline {
     }
 
     // Check if clicking on a clip
-    const clickedClip = this.getClipAtPoint(x, y, state);
+    const clickedClip = this.getClipAtPoint(x, y, state, { pointerType: e.pointerType || 'mouse' });
 
     if (clickedClip) {
       const selectedIds = Array.isArray(state.selectedClipIds) ? state.selectedClipIds : [];
       const clipX = timeToPixels(clickedClip.start, state.zoom) - this.scrollX;
-      const clipWidth = timeToPixels(clickedClip.duration, state.zoom);
-      const handleHitSlop = this.getResizeHandleHitSlopPx(clipWidth, e.pointerType || 'mouse');
+      const clipWidth = Math.max(MIN_CLIP_WIDTH, timeToPixels(clickedClip.duration, state.zoom));
       const isToggle = e.ctrlKey || e.metaKey;
       const isAdd = e.shiftKey;
 
       // Check if clicking on resize handles
-      const isLeftHandle = Math.abs(x - clipX) < handleHitSlop;
-      const isRightHandle = Math.abs(x - (clipX + clipWidth)) < handleHitSlop;
+      const handle = this.getResizeHandleAtX(x, clipX, clipWidth, e.pointerType || 'mouse');
 
-      if (isLeftHandle || isRightHandle) {
+      if (handle) {
         if (!selectedIds.includes(clickedClip.id) || selectedIds.length > 1) {
           this.state.dispatch(actions.setSelection([clickedClip.id], clickedClip.id));
         }
         this.dragState = {
           type: 'resize',
           clip: clickedClip,
-          handle: isLeftHandle ? 'left' : 'right',
+          handle,
           startX: x,
           originalStart: clickedClip.start,
           originalDuration: clickedClip.duration,
@@ -541,7 +587,7 @@ export class Timeline {
     const state = this.state.getState();
 
     // Update cursor based on hover
-    this.updateCursor(x, y, state);
+    this.updateCursor(x, y, state, e.pointerType || 'mouse');
 
     if (!this.dragState) return;
 
@@ -754,19 +800,17 @@ export class Timeline {
    * @param {number} y
    * @param {import('../core/types.js').EditorState} state
    */
-  updateCursor(x, y, state) {
+  updateCursor(x, y, state, pointerType = 'mouse') {
     if (this.dragState) return; // Don't change cursor while dragging
 
-    const clip = this.getClipAtPoint(x, y, state);
+    const clip = this.getClipAtPoint(x, y, state, { pointerType });
 
     if (clip) {
       const clipX = timeToPixels(clip.start, state.zoom) - this.scrollX;
-      const clipWidth = timeToPixels(clip.duration, state.zoom);
+      const clipWidth = Math.max(MIN_CLIP_WIDTH, timeToPixels(clip.duration, state.zoom));
+      const handle = this.getResizeHandleAtX(x, clipX, clipWidth, pointerType);
 
-      const isLeftHandle = Math.abs(x - clipX) < 5;
-      const isRightHandle = Math.abs(x - (clipX + clipWidth)) < 5;
-
-      if (isLeftHandle || isRightHandle) {
+      if (handle) {
         this.canvas.style.cursor = 'ew-resize';
       } else {
         this.canvas.style.cursor = 'move';
@@ -783,15 +827,14 @@ export class Timeline {
    * @param {import('../core/types.js').EditorState} state
    * @returns {import('../core/types.js').Clip|null}
    */
-  getClipAtPoint(x, y, state) {
+  getClipAtPoint(x, y, state, options = {}) {
     if (y < RULER_HEIGHT) return null;
 
     const trackIndex = Math.floor((y - RULER_HEIGHT) / TRACK_HEIGHT);
     if (trackIndex < 0 || trackIndex >= state.tracks.length) return null;
 
     const track = state.tracks[trackIndex];
-    const time = pixelsToTime(x + this.scrollX, state.zoom);
-
+    const pointerType = options && options.pointerType ? options.pointerType : 'mouse';
     const selectedIds = Array.isArray(state.selectedClipIds) ? state.selectedClipIds : [];
 
     // Prefer interacting with an already selected clip when multiple overlap.
@@ -800,7 +843,18 @@ export class Timeline {
     for (let i = state.clips.length - 1; i >= 0; i -= 1) {
       const clip = state.clips[i];
       if (clip.trackId !== track.id) continue;
-      if (time < clip.start || time >= clip.start + clip.duration) continue;
+
+      const clipX = timeToPixels(clip.start, state.zoom) - this.scrollX;
+      const clipWidth = Math.max(MIN_CLIP_WIDTH, timeToPixels(clip.duration, state.zoom));
+      const handleSlop = this.getResizeHandleSlopPx(clipWidth, pointerType);
+
+      const inside = x >= clipX && x <= clipX + clipWidth;
+      const leftDist = Math.abs(x - clipX);
+      const rightDist = Math.abs(x - (clipX + clipWidth));
+      const nearEdge = inside
+        ? (leftDist < handleSlop.interior || rightDist < handleSlop.interior)
+        : (leftDist < handleSlop.exterior || rightDist < handleSlop.exterior);
+      if (!inside && !nearEdge) continue;
 
       if (clip.id === state.selectedClipId || selectedIds.includes(clip.id)) {
         return clip;
