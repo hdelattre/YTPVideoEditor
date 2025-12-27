@@ -3,6 +3,7 @@
  */
 
 import * as actions from '../core/actions.js';
+import { createId } from '../utils/id.js';
 
 export class MediaManager {
   /**
@@ -56,7 +57,7 @@ export class MediaManager {
           continue;
         }
         // Add to media library
-        const mediaId = crypto.randomUUID();
+        const mediaId = createId();
         // Ensure render sees the file as present on the first state update.
         this.editor.mediaFiles.set(mediaId, file);
         this.editor.mediaInfo.set(mediaId, {

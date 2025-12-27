@@ -5,6 +5,7 @@
 
 import { SHORTCUTS, JUMP_INTERVAL, MIN_ZOOM, MAX_ZOOM, ZOOM_STEP } from '../core/constants.js';
 import * as actions from '../core/actions.js';
+import { createId } from './id.js';
 
 /**
  * Keyboard shortcuts manager
@@ -215,7 +216,7 @@ export class KeyboardManager {
       clips.forEach(clip => {
         this.state.dispatch(actions.addClip({
           ...clip,
-          id: crypto.randomUUID(),
+          id: createId(),
           start: clip.start + offset,
         }));
       });
@@ -227,7 +228,7 @@ export class KeyboardManager {
     // Backward compatibility for single clip
     this.state.dispatch(actions.addClip({
       ...clipData,
-      id: crypto.randomUUID(),
+      id: createId(),
       start: state.playhead,
     }));
 

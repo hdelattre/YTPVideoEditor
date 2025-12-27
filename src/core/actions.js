@@ -4,6 +4,7 @@
  */
 
 import { DEFAULT_CLIP_COLOR, DEFAULT_SPEED } from './constants.js';
+import { createId } from '../utils/id.js';
 
 /**
  * Add a new clip to the timeline
@@ -13,7 +14,7 @@ import { DEFAULT_CLIP_COLOR, DEFAULT_SPEED } from './constants.js';
 export function addClip(clip) {
   return (state) => {
     state.clips.push({
-      id: clip.id || crypto.randomUUID(),
+      id: clip.id || createId(),
       name: clip.name,
       mediaId: clip.mediaId,
       trackId: clip.trackId,
@@ -92,13 +93,13 @@ export function splitClip(clipId, splitTime) {
     // Create two new clips from the split
     const clip1 = {
       ...originalClip,
-      id: crypto.randomUUID(),
+      id: createId(),
       duration: splitTime,
     };
 
     const clip2 = {
       ...originalClip,
-      id: crypto.randomUUID(),
+      id: createId(),
       start: originalClip.start + splitTime,
       trimStart: originalClip.trimStart + splitTime,
       duration: originalClip.duration - splitTime,

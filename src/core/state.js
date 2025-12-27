@@ -9,6 +9,7 @@ import {
   createDefaultFilters,
 } from './constants.js';
 import { createDefaultExportSettings } from '../export/settings.js';
+import { createId } from '../utils/id.js';
 
 /**
  * State Manager with history tracking and pub/sub
@@ -37,7 +38,7 @@ export class StateManager {
   createInitialState() {
     return {
       project: {
-        id: crypto.randomUUID(),
+        id: createId(),
         name: 'Untitled Project',
         createdAt: Date.now(),
         modifiedAt: Date.now(),
