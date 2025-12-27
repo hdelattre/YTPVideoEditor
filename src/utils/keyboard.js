@@ -47,6 +47,8 @@ export class KeyboardManager {
     this.register(SHORTCUTS.COPY, () => this.copyClip());
     this.register(SHORTCUTS.PASTE, () => this.pasteClip());
     this.register(SHORTCUTS.SELECT_ALL, () => this.selectAllClips());
+    this.register(SHORTCUTS.SELECT_LEFT, () => this.selectClipsLeft());
+    this.register(SHORTCUTS.SELECT_RIGHT, () => this.selectClipsRight());
 
     // YTP-specific
     this.register(SHORTCUTS.REVERSE, () => this.reverseClip());
@@ -243,6 +245,50 @@ export class KeyboardManager {
       ? state.selectedClipId
       : allIds[0];
     this.state.dispatch(actions.setSelection(allIds, primary));
+  }
+
+  /**
+   * Add all clips to the left of the current selection
+   */
+  selectClipsLeft() {
+    const state = this.state.getState();
+    const selectedIds = Array.isArray(state.selectedClipIds) && state.selectedClipIds.length > 0
+      ? state.selectedClipIds
+      : (state.selectedClipId ? [state.selectedClipId] : []);
+    if (selectedIds.length === 0) return;
+    const selectedClips = state.clips.filter(clip => selectedIds.includes(clip.id));
+    if (selectedClips.length === 0) return;
+    const selectionStart = Math.min(...selectedClips.map(clip => clip.start));
+    const leftIds = state.clips
+      .filter(clip => (clip.start + clip.duration) <= selectionStart)
+      .map(clip => clip.id);
+    const nextIds = Array.from(new Set([...selectedIds, ...leftIds]));
+    const primary = state.selectedClipId && nextIds.includes(state.selectedClipId)
+      ? state.selectedClipId
+      : nextIds[0];
+    this.state.dispatch(actions.setSelection(nextIds, primary));
+  }
+
+  /**
+   * Add all clips to the right of the current selection
+   */
+  selectClipsRight() {
+    const state = this.state.getState();
+    const selectedIds = Array.isArray(state.selectedClipIds) && state.selectedClipIds.length > 0
+      ? state.selectedClipIds
+      : (state.selectedClipId ? [state.selectedClipId] : []);
+    if (selectedIds.length === 0) return;
+    const selectedClips = state.clips.filter(clip => selectedIds.includes(clip.id));
+    if (selectedClips.length === 0) return;
+    const selectionStart = Math.min(...selectedClips.map(clip => clip.start));
+    const rightIds = state.clips
+      .filter(clip => clip.start >= selectionStart)
+      .map(clip => clip.id);
+    const nextIds = Array.from(new Set([...selectedIds, ...rightIds]));
+    const primary = state.selectedClipId && nextIds.includes(state.selectedClipId)
+      ? state.selectedClipId
+      : nextIds[0];
+    this.state.dispatch(actions.setSelection(nextIds, primary));
   }
 
   /**

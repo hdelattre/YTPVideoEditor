@@ -51,6 +51,8 @@ export const SHORTCUTS = {
   COPY: 'Ctrl+c',
   PASTE: 'Ctrl+v',
   SELECT_ALL: 'Ctrl+a',
+  SELECT_LEFT: 'Ctrl+Shift+ArrowLeft',
+  SELECT_RIGHT: 'Ctrl+Shift+ArrowRight',
   REVERSE: 'r',
   SPEED_UP: ']',
   SPEED_DOWN: '[',
