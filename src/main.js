@@ -85,7 +85,8 @@ class YTPEditor {
   initializeUI() {
     // Initialize timeline
     const timelineContainer = document.getElementById('timelineContainer');
-    this.timeline = new Timeline(timelineContainer, this.state);
+    const timelineScroll = document.getElementById('timelineScroll');
+    this.timeline = new Timeline(timelineContainer, this.state, { scrollEl: timelineScroll });
 
     // Initialize preview canvas
     this.previewCanvas = document.getElementById('previewCanvas');
@@ -107,6 +108,7 @@ class YTPEditor {
     this.projectModalCloseBtn = document.getElementById('projectModalCloseBtn');
     this.projectNewBtn = document.getElementById('projectNewBtn');
     this.projectLoadBtn = document.getElementById('projectLoadBtn');
+    this.projectSaveBtn = document.getElementById('projectSaveBtn');
     this.projectImportBtn = document.getElementById('projectImportBtn');
     this.projectImportInput = document.getElementById('projectImportInput');
     this.projectCancelBtn = document.getElementById('projectCancelBtn');
@@ -125,6 +127,8 @@ class YTPEditor {
     this.newProjectBtn = document.getElementById('newProjectBtn');
     this.saveBtn = document.getElementById('saveBtn');
     this.exportBtn = document.getElementById('exportBtn');
+    this.splitBtn = document.getElementById('splitBtn');
+    this.deleteBtn = document.getElementById('deleteBtn');
     this.addTrackBtn = document.getElementById('addTrackBtn');
     this.zoomInBtn = document.getElementById('zoomInBtn');
     this.zoomOutBtn = document.getElementById('zoomOutBtn');
@@ -134,6 +138,10 @@ class YTPEditor {
     this.statusText = document.getElementById('statusText');
     this.propertiesContent = document.getElementById('propertiesContent');
     this.helpModal = document.getElementById('helpModal');
+    this.mobileOverlay = document.getElementById('mobileOverlay');
+    this.mobileMediaPanelBtn = document.getElementById('mobileMediaPanelBtn');
+    this.mobilePropertiesPanelBtn = document.getElementById('mobilePropertiesPanelBtn');
+    this.mobileProjectBtn = document.getElementById('mobileProjectBtn');
     this.reassociateInput = document.createElement('input');
     this.reassociateInput.type = 'file';
     this.reassociateInput.accept = 'video/*,audio/*';
@@ -173,6 +181,88 @@ class YTPEditor {
     this.zoomInBtn.addEventListener('click', () => this.zoomIn());
     this.zoomOutBtn.addEventListener('click', () => this.zoomOut());
 
+    if (this.splitBtn) {
+      this.splitBtn.addEventListener('click', () => this.keyboard.splitClip());
+    }
+
+    if (this.deleteBtn) {
+      this.deleteBtn.addEventListener('click', () => this.keyboard.deleteClip());
+    }
+
+    const closeMobilePanels = () => {
+      document.body.classList.remove('is-media-open', 'is-properties-open');
+      if (this.mobileOverlay) {
+        this.mobileOverlay.hidden = true;
+      }
+      if (this.mobileMediaPanelBtn) {
+        this.mobileMediaPanelBtn.setAttribute('aria-expanded', 'false');
+      }
+      if (this.mobilePropertiesPanelBtn) {
+        this.mobilePropertiesPanelBtn.setAttribute('aria-expanded', 'false');
+      }
+    };
+
+    const openMobilePanel = (panel) => {
+      const isMedia = panel === 'media';
+      const isProps = panel === 'properties';
+      document.body.classList.toggle('is-media-open', isMedia);
+      document.body.classList.toggle('is-properties-open', isProps);
+      if (this.mobileOverlay) {
+        this.mobileOverlay.hidden = false;
+      }
+      if (this.mobileMediaPanelBtn) {
+        this.mobileMediaPanelBtn.setAttribute('aria-expanded', String(isMedia));
+      }
+      if (this.mobilePropertiesPanelBtn) {
+        this.mobilePropertiesPanelBtn.setAttribute('aria-expanded', String(isProps));
+      }
+    };
+
+    const toggleMobilePanel = (panel) => {
+      const className = panel === 'media' ? 'is-media-open' : 'is-properties-open';
+      if (document.body.classList.contains(className)) {
+        closeMobilePanels();
+      } else {
+        openMobilePanel(panel);
+      }
+    };
+
+    if (this.mobileMediaPanelBtn) {
+      this.mobileMediaPanelBtn.setAttribute('aria-expanded', 'false');
+      this.mobileMediaPanelBtn.addEventListener('click', () => toggleMobilePanel('media'));
+    }
+
+    if (this.mobilePropertiesPanelBtn) {
+      this.mobilePropertiesPanelBtn.setAttribute('aria-expanded', 'false');
+      this.mobilePropertiesPanelBtn.addEventListener('click', () => toggleMobilePanel('properties'));
+    }
+
+    if (this.mobileProjectBtn) {
+      this.mobileProjectBtn.addEventListener('click', () => this.showProjectModal());
+    }
+
+    if (this.mobileOverlay) {
+      this.mobileOverlay.addEventListener('click', () => closeMobilePanels());
+    }
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        closeMobilePanels();
+      }
+    });
+
+    const mobileMediaQuery = window.matchMedia('(max-width: 900px)');
+    const handleMobileMediaChange = (e) => {
+      if (!e.matches) {
+        closeMobilePanels();
+      }
+    };
+    if (typeof mobileMediaQuery.addEventListener === 'function') {
+      mobileMediaQuery.addEventListener('change', handleMobileMediaChange);
+    } else if (typeof mobileMediaQuery.addListener === 'function') {
+      mobileMediaQuery.addListener(handleMobileMediaChange);
+    }
+
     if (this.exportCommandCopyBtn) {
       this.exportCommandCopyBtn.addEventListener('click', () => {
         if (this.exportCommandInput && this.exportCommandInput.value) {
@@ -202,6 +292,13 @@ class YTPEditor {
       this.projectLoadBtn.addEventListener('click', () => {
         this.loadProject();
         this.hideProjectModal();
+      });
+    }
+
+    if (this.projectSaveBtn) {
+      this.projectSaveBtn.addEventListener('click', () => {
+        this.hideProjectModal();
+        this.showSaveModal();
       });
     }
 

@@ -239,6 +239,18 @@ export class MediaManager {
         badge.className = 'media-item-missing';
         badge.textContent = 'Missing';
         header.appendChild(badge);
+      } else {
+        const addBtn = document.createElement('button');
+        addBtn.type = 'button';
+        addBtn.className = 'btn btn-icon btn-sm media-item-add mobile-only';
+        addBtn.textContent = '+';
+        addBtn.title = 'Add to timeline';
+        addBtn.setAttribute('aria-label', `Add ${media.name} to timeline`);
+        addBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.addMediaToTimeline(media);
+        });
+        header.appendChild(addBtn);
       }
 
       const info = document.createElement('div');

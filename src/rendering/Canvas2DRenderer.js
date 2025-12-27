@@ -74,10 +74,14 @@ export class Canvas2DRenderer extends Renderer {
     // Draw trim handles if selected
     if (selected && width > 20) {
       ctx.fillStyle = '#ffffff';
+      const isSmallScreen = typeof window !== 'undefined'
+        && typeof window.matchMedia === 'function'
+        && window.matchMedia('(max-width: 900px)').matches;
+      const handleWidth = isSmallScreen ? 10 : 3;
       // Left handle
-      ctx.fillRect(x, y, 3, height);
+      ctx.fillRect(x, y, handleWidth, height);
       // Right handle
-      ctx.fillRect(x + width - 3, y, 3, height);
+      ctx.fillRect(x + width - handleWidth, y, handleWidth, height);
     }
   }
 

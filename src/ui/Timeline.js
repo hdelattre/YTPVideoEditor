@@ -24,10 +24,12 @@ export class Timeline {
   /**
    * @param {HTMLElement} containerEl
    * @param {import('../core/state.js').StateManager} stateManager
+   * @param {{scrollEl?: HTMLInputElement|null}} [options]
    */
-  constructor(containerEl, stateManager) {
+  constructor(containerEl, stateManager, options = {}) {
     this.container = containerEl;
     this.state = stateManager;
+    this.scrollEl = options && options.scrollEl ? options.scrollEl : null;
 
     // Create canvas
     this.canvas = document.createElement('canvas');
@@ -49,6 +51,7 @@ export class Timeline {
 
     this.setupCanvas();
     this.setupEventListeners();
+    this.setupScrollbar();
 
     // Subscribe to state changes
     this.unsubscribe = this.state.subscribe((state) => {
@@ -60,6 +63,68 @@ export class Timeline {
   }
 
   /**
+   * Hit area size for resize handles (touch needs a larger target).
+   * @param {number} clipWidthPx
+   * @param {string} pointerType
+   * @returns {number}
+   */
+  getResizeHandleHitSlopPx(clipWidthPx, pointerType) {
+    const isTouch = pointerType === 'touch' || pointerType === 'pen';
+    const isSmallScreen = typeof window !== 'undefined'
+      && typeof window.matchMedia === 'function'
+      && window.matchMedia('(max-width: 900px)').matches;
+    const base = isTouch ? 16 : (isSmallScreen ? 10 : 6);
+    const maxSlop = Math.max(6, Math.floor(clipWidthPx / 2));
+    return Math.min(base, maxSlop);
+  }
+
+  setupScrollbar() {
+    if (!this.scrollEl) return;
+    this.scrollEl.min = '0';
+    this.scrollEl.step = '1';
+    this.scrollEl.addEventListener('input', () => {
+      const state = this.state.getState();
+      const maxScroll = this.getMaxScroll(state, this.renderer.width);
+      const next = Number(this.scrollEl.value);
+      this.scrollX = Number.isFinite(next) ? Math.max(0, Math.min(next, maxScroll)) : 0;
+      this.render(state);
+    });
+  }
+
+  syncScrollbar(maxScroll) {
+    if (!this.scrollEl) return;
+    const shouldShow = maxScroll > 0.5;
+    const wasHidden = this.scrollEl.hidden;
+    this.scrollEl.hidden = !shouldShow;
+    this.scrollEl.disabled = !shouldShow;
+    const isHidden = this.scrollEl.hidden;
+    if (wasHidden !== isHidden) {
+      requestAnimationFrame(() => this.resizeCanvas());
+    }
+
+    if (!shouldShow) {
+      this.scrollEl.max = '0';
+      this.scrollEl.value = '0';
+      this.scrollEl.style.setProperty('--range-percent', '0%');
+      return;
+    }
+
+    const clampedScroll = Math.max(0, Math.min(this.scrollX, maxScroll));
+    const roundedMax = Math.ceil(maxScroll);
+    const roundedValue = Math.round(clampedScroll);
+
+    if (Number(this.scrollEl.max) !== roundedMax) {
+      this.scrollEl.max = String(roundedMax);
+    }
+    if (Number(this.scrollEl.value) !== roundedValue) {
+      this.scrollEl.value = String(roundedValue);
+    }
+
+    const percent = roundedMax === 0 ? 0 : (roundedValue / roundedMax) * 100;
+    this.scrollEl.style.setProperty('--range-percent', `${Math.max(0, Math.min(100, percent))}%`);
+  }
+
+  /**
    * Setup canvas dimensions
    */
   setupCanvas() {
@@ -67,6 +132,11 @@ export class Timeline {
 
     // Handle window resize
     window.addEventListener('resize', () => this.resizeCanvas());
+
+    if (typeof ResizeObserver !== 'undefined') {
+      this.resizeObserver = new ResizeObserver(() => this.resizeCanvas());
+      this.resizeObserver.observe(this.container);
+    }
   }
 
   /**
@@ -194,6 +264,8 @@ export class Timeline {
     if (playheadX >= 0 && playheadX <= visibleWidth) {
       this.renderer.drawPlayhead(playheadX, timelineHeight, COLORS.playhead);
     }
+
+    this.syncScrollbar(maxScroll);
   }
 
   /**
@@ -315,6 +387,11 @@ export class Timeline {
         type: 'playhead',
         startX: x,
       };
+      try {
+        this.canvas.setPointerCapture(e.pointerId);
+      } catch {
+        // Ignore pointer capture errors.
+      }
       return;
     }
 
@@ -329,6 +406,11 @@ export class Timeline {
         type: 'playhead',
         startX: x,
       };
+      try {
+        this.canvas.setPointerCapture(e.pointerId);
+      } catch {
+        // Ignore pointer capture errors.
+      }
       return;
     }
 
@@ -339,12 +421,13 @@ export class Timeline {
       const selectedIds = Array.isArray(state.selectedClipIds) ? state.selectedClipIds : [];
       const clipX = timeToPixels(clickedClip.start, state.zoom) - this.scrollX;
       const clipWidth = timeToPixels(clickedClip.duration, state.zoom);
+      const handleHitSlop = this.getResizeHandleHitSlopPx(clipWidth, e.pointerType || 'mouse');
       const isToggle = e.ctrlKey || e.metaKey;
       const isAdd = e.shiftKey;
 
       // Check if clicking on resize handles
-      const isLeftHandle = Math.abs(x - clipX) < 5;
-      const isRightHandle = Math.abs(x - (clipX + clipWidth)) < 5;
+      const isLeftHandle = Math.abs(x - clipX) < handleHitSlop;
+      const isRightHandle = Math.abs(x - (clipX + clipWidth)) < handleHitSlop;
 
       if (isLeftHandle || isRightHandle) {
         if (!selectedIds.includes(clickedClip.id) || selectedIds.length > 1) {
@@ -363,6 +446,11 @@ export class Timeline {
           historySnapshot: this.state.getState(),
           didUpdate: false,
         };
+        try {
+          this.canvas.setPointerCapture(e.pointerId);
+        } catch {
+          // Ignore pointer capture errors.
+        }
         return;
       }
 
@@ -409,6 +497,11 @@ export class Timeline {
         historySnapshot: this.state.getState(),
         didUpdate: false,
       };
+      try {
+        this.canvas.setPointerCapture(e.pointerId);
+      } catch {
+        // Ignore pointer capture errors.
+      }
     } else {
       const mode = e.altKey
         ? 'subtract'
@@ -428,6 +521,11 @@ export class Timeline {
         threshold: 4,
       };
       this.canvas.style.cursor = 'crosshair';
+      try {
+        this.canvas.setPointerCapture(e.pointerId);
+      } catch {
+        // Ignore pointer capture errors.
+      }
     }
   }
 
@@ -611,6 +709,11 @@ export class Timeline {
 
     if (this.dragState && this.dragState.historySnapshot && this.dragState.didUpdate) {
       this.state.dispatch(state => state, true, this.dragState.historySnapshot);
+    }
+    try {
+      this.canvas.releasePointerCapture(e.pointerId);
+    } catch {
+      // Ignore pointer capture errors.
     }
     this.dragState = null;
     this.canvas.style.cursor = 'default';

@@ -2,11 +2,12 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>YTP Video Editor</title>
     <link rel="stylesheet" href="styles/main.css">
     <link rel="stylesheet" href="styles/timeline.css">
     <link rel="stylesheet" href="styles/editor.css">
+    <link rel="stylesheet" href="styles/mobile.css">
 </head>
 <body>
     <div class="editor-container">
@@ -17,11 +18,16 @@
                 <button id="undoBtn" class="btn btn-icon" title="Undo (Ctrl+Z)" disabled>↶</button>
                 <button id="redoBtn" class="btn btn-icon" title="Redo (Ctrl+Shift+Z)" disabled>↷</button>
                 <span class="separator"></span>
+                <button type="button" id="mobileMediaPanelBtn" class="btn btn-icon mobile-only" title="Media library" aria-label="Media library">📁</button>
+                <button type="button" id="mobilePropertiesPanelBtn" class="btn btn-icon mobile-only" title="Properties" aria-label="Properties">⚙️</button>
+                <button type="button" id="mobileProjectBtn" class="btn btn-icon mobile-only" title="Project" aria-label="Project">☰</button>
                 <button id="newProjectBtn" class="btn btn-secondary">New Project</button>
                 <button id="saveBtn" class="btn btn-secondary">Save Project</button>
-                <button id="exportBtn" class="btn btn-primary" disabled>Export Video</button>
+                <button id="exportBtn" class="btn btn-primary" title="Export video" aria-label="Export video" disabled>Export Video</button>
             </div>
         </header>
+
+        <div id="mobileOverlay" class="mobile-overlay" hidden></div>
 
         <!-- Main content area -->
         <div class="editor-main">
@@ -57,6 +63,8 @@
                 <section class="timeline-section">
                     <div class="timeline-toolbar">
                         <button id="addTrackBtn" class="btn btn-sm">+ Track</button>
+                        <button type="button" id="splitBtn" class="btn btn-sm mobile-only" title="Split clip at playhead">Split</button>
+                        <button type="button" id="deleteBtn" class="btn btn-sm mobile-only" title="Delete selection">Delete</button>
                         <span class="separator"></span>
                         <span class="zoom-label">Zoom:</span>
                         <button id="zoomOutBtn" class="btn btn-icon btn-sm">-</button>
@@ -64,6 +72,8 @@
                         <button id="zoomInBtn" class="btn btn-icon btn-sm">+</button>
                     </div>
                     <div id="timelineContainer" class="timeline-container"></div>
+                    <input type="range" id="timelineScroll" class="timeline-scroll" min="0" max="0" value="0" step="1"
+                           aria-label="Timeline scroll" hidden>
                 </section>
             </main>
 
@@ -124,6 +134,7 @@
                 <div class="modal-actions">
                     <button id="projectNewBtn" class="btn btn-secondary">New Project</button>
                     <button id="projectLoadBtn" class="btn btn-primary">Load Saved</button>
+                    <button id="projectSaveBtn" class="btn btn-secondary">Save Project</button>
                     <button id="projectImportBtn" class="btn btn-secondary">Import JSON</button>
                     <button id="projectCancelBtn" class="btn btn-secondary">Cancel</button>
                 </div>
