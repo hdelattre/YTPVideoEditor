@@ -43,23 +43,39 @@ export function decoratePropertySliders(container, options = {}) {
   const { escapeHtml: escape = escapeHtml, onResetDefaultFilter } = options;
   const sliders = container.querySelectorAll('input.property-slider');
   sliders.forEach((input) => {
-    updateRangeVisual(input);
-    if (!input.dataset.rangeVisualBound) {
-      input.dataset.rangeVisualBound = 'true';
-      input.addEventListener('input', () => updateRangeVisual(input));
-    }
-
     const min = input.min !== '' ? input.min : '0';
     const max = input.max !== '' ? input.max : '100';
     const next = input.nextElementSibling;
     const valueDisplay = next && next.querySelector && next.querySelector('span[id$="-value"]') ? next : null;
     const insertAfter = valueDisplay || input;
     const existing = insertAfter.nextElementSibling;
-    if (!existing || !existing.classList.contains('slider-range')) {
-      const rangeEl = document.createElement('div');
+    let rangeEl = existing && existing.classList.contains('slider-range') ? existing : null;
+    if (!rangeEl) {
+      rangeEl = document.createElement('div');
       rangeEl.className = 'slider-range';
-      rangeEl.innerHTML = `<span>${escape(min)}</span><span>${escape(max)}</span>`;
       insertAfter.insertAdjacentElement('afterend', rangeEl);
+    }
+    if (!rangeEl.querySelector('.slider-range-value')) {
+      rangeEl.innerHTML = `<span>${escape(min)}</span>` +
+        `<span class="slider-range-value"></span>` +
+        `<span>${escape(max)}</span>`;
+    }
+
+    const updateValueDisplay = () => {
+      const valueEl = rangeEl.querySelector('.slider-range-value');
+      if (!valueEl) return;
+      valueEl.textContent = formatRangeValue(input);
+    };
+
+    updateRangeVisual(input);
+    updateValueDisplay();
+    if (!input.dataset.rangeVisualBound) {
+      input.dataset.rangeVisualBound = 'true';
+      input.addEventListener('input', () => updateRangeVisual(input));
+    }
+    if (!input.dataset.rangeValueBound) {
+      input.dataset.rangeValueBound = 'true';
+      input.addEventListener('input', updateValueDisplay);
     }
 
     const section = input.dataset.filterSection;
@@ -92,6 +108,7 @@ export function decoratePropertySliders(container, options = {}) {
       if (Number.isNaN(value)) return;
       input.value = String(value);
       updateRangeVisual(input);
+      updateValueDisplay();
       if (typeof onResetDefaultFilter === 'function') {
         onResetDefaultFilter(section, key, value);
       }
@@ -99,4 +116,23 @@ export function decoratePropertySliders(container, options = {}) {
     labelRow.appendChild(resetBtn);
     input.dataset.resetBound = 'true';
   });
+}
+
+function formatRangeValue(input) {
+  const raw = input.value;
+  const value = Number(raw);
+  if (!Number.isFinite(value)) return String(raw);
+  const step = String(input.step || '');
+  if (step === '' || step === 'any') {
+    return trimDecimals(value.toFixed(3));
+  }
+  if (step.includes('.')) {
+    const decimals = step.split('.')[1].replace(/0+$/, '').length;
+    return trimDecimals(value.toFixed(decimals));
+  }
+  return trimDecimals(value.toFixed(0));
+}
+
+function trimDecimals(value) {
+  return value.replace(/\.?0+$/, '');
 }

@@ -168,6 +168,12 @@
   margin-top: var(--spacing-xs);
 }
 
+.property-row-stack {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--spacing-xs);
+}
+
 .property-row-label {
   font-size: 10px;
   font-weight: 600;
@@ -341,6 +347,11 @@
   font-size: 10px;
   color: var(--color-text-muted);
   margin-top: 4px;
+}
+
+.slider-range-value {
+  color: var(--color-text);
+  font-weight: 600;
 }
 
 .property-checkbox {

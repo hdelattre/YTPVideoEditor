@@ -98,13 +98,14 @@ export class PropertiesPanel {
             <option value="auto" ${resolutionIsAuto ? 'selected' : ''}>Auto (max clip)</option>
             <option value="custom" ${resolutionIsAuto ? '' : 'selected'}>Custom</option>
           </select>
-          <div class="property-row">
+          <div class="property-row property-row-stack">
+            <label class="property-row-label" for="project-resolution-width">Width</label>
             <input type="number" class="property-input" id="project-resolution-width"
-                   aria-label="Resolution width"
                    min="320" value="${widthValue}">
-            <span class="property-row-separator">x</span>
+          </div>
+          <div class="property-row property-row-stack">
+            <label class="property-row-label" for="project-resolution-height">Height</label>
             <input type="number" class="property-input" id="project-resolution-height"
-                   aria-label="Resolution height"
                    min="240" value="${heightValue}">
           </div>
         </div>
