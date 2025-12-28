@@ -37,12 +37,15 @@ class YTPEditor {
     this.mediaInfo = new Map();
     this.lastPreviewVideoClipId = null;
     this.lastPreviewAudioClipId = null;
+    this.lastPreviewAudioMediaId = null;
+    this.lastPreviewVideoMediaId = null;
     this.lastReverseSeekTime = 0;
     this.lastReverseAudioSeekTime = 0;
     this.lastAudioSeekTime = 0;
     this.lastReverseVideoClipTime = null;
     this.lastReverseVideoMediaId = null;
     this.lastVideoSeekTime = 0;
+    this.lastMobileVideoSyncTime = 0;
     this.previewFrameBuffer = document.createElement('canvas');
     this.previewFrameCtx = this.previewFrameBuffer.getContext('2d');
     this.hasPreviewFrame = false;
@@ -96,6 +99,24 @@ class YTPEditor {
     // Create hidden video elements for playback
     this.videoElements = new Map();
     this.audioElements = new Map();
+    this.hiddenMediaContainer = document.getElementById('hiddenMediaElements');
+    if (!this.hiddenMediaContainer) {
+      const container = document.createElement('div');
+      container.id = 'hiddenMediaElements';
+      document.body.appendChild(container);
+      this.hiddenMediaContainer = container;
+    }
+    if (this.hiddenMediaContainer) {
+      this.hiddenMediaContainer.setAttribute('aria-hidden', 'true');
+      this.hiddenMediaContainer.style.position = 'fixed';
+      this.hiddenMediaContainer.style.left = '0';
+      this.hiddenMediaContainer.style.top = '0';
+      this.hiddenMediaContainer.style.width = '1px';
+      this.hiddenMediaContainer.style.height = '1px';
+      this.hiddenMediaContainer.style.overflow = 'hidden';
+      this.hiddenMediaContainer.style.opacity = '0.001';
+      this.hiddenMediaContainer.style.pointerEvents = 'none';
+    }
     this.masterVolume = 1.0;
 
     // Export command UI
@@ -673,7 +694,10 @@ class YTPEditor {
       if (!this.isPreviewLoopActive) return;
       const previewVideo = this.renderPreview();
       if (this.state.getState().isPlaying) {
-        if (previewVideo && typeof previewVideo.requestVideoFrameCallback === 'function') {
+        const isMobile = typeof window !== 'undefined'
+          && typeof window.matchMedia === 'function'
+          && window.matchMedia('(max-width: 900px)').matches;
+        if (!isMobile && previewVideo && typeof previewVideo.requestVideoFrameCallback === 'function') {
           previewVideo.requestVideoFrameCallback(loop);
         } else {
           requestAnimationFrame(loop);
@@ -756,6 +780,7 @@ class YTPEditor {
     this.pendingReassociateMediaId = null;
     this.lastPreviewVideoClipId = null;
     this.lastPreviewAudioClipId = null;
+    this.lastPreviewVideoMediaId = null;
     this.lastPropertiesClipId = null;
     this.lastPropertiesMediaId = null;
     this.lastPropertiesSignature = null;
@@ -805,6 +830,12 @@ class YTPEditor {
 
     if (this.playbackCache) {
       this.playbackCache.clearAll();
+    }
+
+    if (this.hiddenMediaContainer) {
+      while (this.hiddenMediaContainer.firstChild) {
+        this.hiddenMediaContainer.firstChild.remove();
+      }
     }
 
     if (this.mediaInfo) {
@@ -916,6 +947,7 @@ class YTPEditor {
     this.pendingReassociateMediaId = null;
     this.lastPreviewVideoClipId = null;
     this.lastPreviewAudioClipId = null;
+    this.lastPreviewVideoMediaId = null;
     this.lastPropertiesClipId = null;
     this.lastPropertiesMediaId = null;
     this.lastPropertiesSignature = null;
@@ -1125,6 +1157,9 @@ class YTPEditor {
     const playhead = state.playhead;
     const now = performance.now();
     const defaultFilters = this.getDefaultFilters(state);
+    const isMobileViewport = typeof window !== 'undefined'
+      && typeof window.matchMedia === 'function'
+      && window.matchMedia('(max-width: 900px)').matches;
 
     // Clear canvas
     const width = this.previewCanvas.width;
@@ -1176,10 +1211,14 @@ class YTPEditor {
       const file = this.mediaFiles.get(media.id);
       if (!this.videoElements.has(media.id)) {
         const video = document.createElement('video');
-        video.src = this.playbackCache.getObjectUrl(media.id, file);
         video.muted = true;
-        video.preload = 'auto';
         video.volume = 0;
+        video.playsInline = true;
+        video.setAttribute('playsinline', '');
+        video.setAttribute('webkit-playsinline', '');
+        video.disablePictureInPicture = true;
+        video.preload = 'auto';
+        video.src = this.playbackCache.getObjectUrl(media.id, file);
         const schedulePreviewIfPaused = () => {
           if (!this.state.getState().isPlaying) {
             this.schedulePreviewRender();
@@ -1188,9 +1227,15 @@ class YTPEditor {
         video.addEventListener('seeked', schedulePreviewIfPaused);
         video.addEventListener('loadeddata', schedulePreviewIfPaused);
         video.addEventListener('canplay', schedulePreviewIfPaused);
+        if (this.hiddenMediaContainer && !video.parentNode) {
+          this.hiddenMediaContainer.appendChild(video);
+        }
         this.videoElements.set(media.id, video);
       }
       const video = this.videoElements.get(media.id);
+      if (this.hiddenMediaContainer && video && !video.parentNode) {
+        this.hiddenMediaContainer.appendChild(video);
+      }
       this.updateMediaInfoFromVideo(media.id, video);
       return video;
     };
@@ -1203,9 +1248,20 @@ class YTPEditor {
         audio.muted = false;
         audio.preload = 'auto';
         audio.volume = this.masterVolume;
+        audio.playsInline = true;
+        audio.setAttribute('playsinline', '');
+        audio.setAttribute('webkit-playsinline', '');
+        audio.disablePictureInPicture = true;
+        if (this.hiddenMediaContainer && !audio.parentNode) {
+          this.hiddenMediaContainer.appendChild(audio);
+        }
         this.audioElements.set(media.id, audio);
       }
-      return this.audioElements.get(media.id);
+      const audio = this.audioElements.get(media.id);
+      if (this.hiddenMediaContainer && audio && !audio.parentNode) {
+        this.hiddenMediaContainer.appendChild(audio);
+      }
+      return audio;
     };
 
     const activeVideoMediaIds = new Set();
@@ -1214,6 +1270,7 @@ class YTPEditor {
     let didDrawFrame = false;
     let previewVideoForCallback = null;
     let needsSeekRefresh = false;
+    let activeAudioElement = null;
 
     const topmostAudioClip = getTopmostClip(activeClips);
     const videoCandidates = activeClips.filter((clip) => {
@@ -1237,7 +1294,16 @@ class YTPEditor {
 
     if (topmostAudioClip && audioClipMedia) {
       const audio = getAudioForMedia(audioClipMedia);
+      activeAudioElement = audio;
       activeAudioMediaIds.add(audioClipMedia.id);
+      const mediaChanged = this.lastPreviewAudioMediaId !== audioClipMedia.id;
+      if (mediaChanged && this.audioElements) {
+        this.audioElements.forEach((otherAudio, mediaId) => {
+          if (mediaId !== audioClipMedia.id && !otherAudio.paused) {
+            otherAudio.pause();
+          }
+        });
+      }
 
       const clipTime = getClipTime(topmostAudioClip);
       const clipVolume = this.resolveClipVolume(topmostAudioClip, defaultFilters);
@@ -1288,25 +1354,55 @@ class YTPEditor {
       }
 
       this.lastPreviewAudioClipId = topmostAudioClip.id;
+      this.lastPreviewAudioMediaId = audioClipMedia.id;
     } else {
       this.stopReverseAudio();
       this.lastPreviewAudioClipId = null;
+      this.lastPreviewAudioMediaId = null;
     }
 
     if (topmostVideoClip && videoClipMedia) {
-      const video = getVideoForMedia(videoClipMedia);
-      activeVideoMediaIds.add(videoClipMedia.id);
-
       const clipTime = getClipTime(topmostVideoClip);
       const isReversed = topmostVideoClip.reversed === true;
-      const clipChanged = this.lastPreviewVideoClipId !== topmostVideoClip.id;
+      const canUseAudioElementForVideo = !isMobileViewport && Boolean(
+        !isReversed &&
+        activeAudioElement &&
+        topmostAudioClip &&
+        audioClipMedia &&
+        topmostAudioClip.id === topmostVideoClip.id &&
+        audioClipMedia.id === videoClipMedia.id
+      );
+      const video = canUseAudioElementForVideo
+        ? activeAudioElement
+        : getVideoForMedia(videoClipMedia);
+      if (!canUseAudioElementForVideo) {
+        activeVideoMediaIds.add(videoClipMedia.id);
+      }
+      const mediaChanged = this.lastPreviewVideoMediaId !== videoClipMedia.id;
+      const clipChanged = this.lastPreviewVideoClipId !== topmostVideoClip.id || mediaChanged;
       const shouldSeek = shouldResync || clipChanged || (!isReversed && video.paused);
       const targetRate = Math.max(0.25, Math.min(4, topmostVideoClip.speed || 1));
 
-      video.volume = 0;
-      video.muted = true;
+      if (!canUseAudioElementForVideo) {
+        video.volume = 0;
+        video.muted = true;
+      }
 
-      if (state.isPlaying) {
+      if (mediaChanged) {
+        this.hasPreviewFrame = false;
+        if (this.previewFrameCtx) {
+          this.previewFrameCtx.clearRect(0, 0, width, height);
+        }
+        if (this.videoElements) {
+          this.videoElements.forEach((otherVideo, mediaId) => {
+            if (mediaId !== videoClipMedia.id && !otherVideo.paused) {
+              otherVideo.pause();
+            }
+          });
+        }
+      }
+
+      if (!canUseAudioElementForVideo && state.isPlaying) {
         if (isReversed) {
           video.playbackRate = 1;
           if (!video.paused) {
@@ -1343,7 +1439,7 @@ class YTPEditor {
             video.play().catch(() => {}); // Ignore autoplay errors
           }
         }
-      } else {
+      } else if (!canUseAudioElementForVideo) {
         if (!video.paused) {
           video.pause();
         }
@@ -1357,6 +1453,29 @@ class YTPEditor {
             needsSeekRefresh = true;
           }
         }
+      }
+
+      if (
+        isMobileViewport
+        && state.isPlaying
+        && !isReversed
+        && activeAudioElement
+        && topmostAudioClip
+        && audioClipMedia
+        && topmostAudioClip.id === topmostVideoClip.id
+        && audioClipMedia.id === videoClipMedia.id
+        && !video.seeking
+        && now - this.lastMobileVideoSyncTime > 250
+      ) {
+        const drift = Math.abs(video.currentTime - activeAudioElement.currentTime);
+        if (drift > 0.12) {
+          video.currentTime = activeAudioElement.currentTime;
+          this.lastMobileVideoSyncTime = now;
+        }
+      }
+
+      if (canUseAudioElementForVideo) {
+        this.updateMediaInfoFromVideo(videoClipMedia.id, video);
       }
 
       if (!isReversed && !video.paused && video.readyState >= video.HAVE_CURRENT_DATA) {
@@ -1395,8 +1514,10 @@ class YTPEditor {
       }
 
       this.lastPreviewVideoClipId = topmostVideoClip.id;
+      this.lastPreviewVideoMediaId = videoClipMedia.id;
     } else {
       this.lastPreviewVideoClipId = null;
+      this.lastPreviewVideoMediaId = null;
     }
 
     if (!topmostVideoClip) {
