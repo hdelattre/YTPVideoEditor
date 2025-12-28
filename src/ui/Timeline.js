@@ -489,6 +489,7 @@ export class Timeline {
           originalTrimStart: clickedClip.trimStart,
           snapBoundariesByTrack: this.buildSnapBoundaries(state, new Set([clickedClip.id])),
           snapThreshold: this.getSnapThreshold(state),
+          snapBiasThreshold: this.getSnapBiasThreshold(state),
           historySnapshot: this.state.getState(),
           didUpdate: false,
         };
@@ -540,6 +541,7 @@ export class Timeline {
         minStart,
         snapBoundariesByTrack: this.buildSnapBoundaries(state, new Set(activeSelection)),
         snapThreshold: this.getSnapThreshold(state),
+        snapBiasThreshold: this.getSnapBiasThreshold(state),
         historySnapshot: this.state.getState(),
         didUpdate: false,
       };
@@ -620,6 +622,7 @@ export class Timeline {
         }
       }
 
+      this.dragState.lastDeltaTime = deltaTime;
       if (adjustedDeltaTime === 0 && deltaTrack === 0) {
         return;
       }
@@ -664,6 +667,7 @@ export class Timeline {
         const newTrimStart = this.dragState.originalTrimStart + adjustedDeltaTime;
         const newDuration = this.dragState.originalDuration - adjustedDeltaTime;
 
+        this.dragState.lastDeltaTime = deltaTime;
         if (newDuration > 100 && newTrimStart >= 0) { // Min duration 100ms
           this.state.dispatch(actions.updateClip(clip.id, {
             start: newStart,
@@ -688,6 +692,7 @@ export class Timeline {
         }
         const newDuration = Math.max(100, this.dragState.originalDuration + adjustedDeltaTime);
 
+        this.dragState.lastDeltaTime = deltaTime;
         if (newDuration !== clip.duration) {
           this.state.dispatch(actions.updateClip(clip.id, {
             duration: newDuration,
@@ -868,14 +873,39 @@ export class Timeline {
   }
 
   /**
-   * Get snapping threshold in milliseconds based on export FPS
+   * Get snapping threshold in milliseconds based on zoom level
    * @param {import('../core/types.js').EditorState} state
    * @returns {number}
    */
   getSnapThreshold(state) {
-    const fps = state.exportSettings && state.exportSettings.fps ? state.exportSettings.fps : 30;
-    const threshold = (1000 / fps) * 1.5;
-    return Math.min(100, Math.max(10, threshold));
+    const zoom = Number.isFinite(state.zoom) ? state.zoom : 0;
+    const snapPixels = 6;
+    return Math.max(0, pixelsToTime(snapPixels, zoom));
+  }
+
+  /**
+   * Get snap bias threshold in milliseconds based on zoom level.
+   * This is a smaller zone that allows snapping even with minor input jitter.
+   * @param {import('../core/types.js').EditorState} state
+   * @returns {number}
+   */
+  getSnapBiasThreshold(state) {
+    const zoom = Number.isFinite(state.zoom) ? state.zoom : 0;
+    const biasPixels = 3;
+    return Math.max(0, pixelsToTime(biasPixels, zoom));
+  }
+
+  /**
+   * Get drag direction for snapping decisions.
+   * @param {object} dragState
+   * @param {number} deltaTime
+   * @returns {number}
+   */
+  getSnapDirection(dragState, deltaTime) {
+    const lastDelta = Number.isFinite(dragState.lastDeltaTime)
+      ? dragState.lastDeltaTime
+      : deltaTime;
+    return Math.sign(deltaTime - lastDelta);
   }
 
   /**
@@ -900,15 +930,19 @@ export class Timeline {
    * @param {number} time
    * @param {number[]} boundaries
    * @param {number} threshold
+   * @param {number} biasThreshold
+   * @param {number} [direction]
    * @returns {number}
    */
-  findSnapDelta(time, boundaries, threshold) {
+  findSnapDelta(time, boundaries, threshold, biasThreshold, direction = 0) {
     let bestDelta = 0;
     let bestAbs = threshold + 1;
     boundaries.forEach((boundary) => {
       const delta = boundary - time;
       const absDelta = Math.abs(delta);
-      if (absDelta > 0 && absDelta <= threshold && absDelta < bestAbs) {
+      if (absDelta === 0 || absDelta > threshold) return;
+      if (direction !== 0 && absDelta > biasThreshold && Math.sign(delta) !== direction) return;
+      if (absDelta < bestAbs) {
         bestAbs = absDelta;
         bestDelta = delta;
       }
@@ -927,7 +961,9 @@ export class Timeline {
   getMoveSnapDelta(state, dragState, deltaTime, deltaTrack) {
     const threshold = dragState.snapThreshold || this.getSnapThreshold(state);
     if (!threshold) return 0;
+    const biasThreshold = dragState.snapBiasThreshold || this.getSnapBiasThreshold(state);
     const boundariesByTrack = dragState.snapBoundariesByTrack || [];
+    const direction = this.getSnapDirection(dragState, deltaTime);
     let bestDelta = 0;
     let bestAbs = threshold + 1;
 
@@ -943,7 +979,7 @@ export class Timeline {
       const newStart = selected.originalStart + deltaTime;
       const newEnd = newStart + clip.duration;
       [newStart, newEnd].forEach((edge) => {
-        const delta = this.findSnapDelta(edge, boundaries, threshold);
+        const delta = this.findSnapDelta(edge, boundaries, threshold, biasThreshold, direction);
         const absDelta = Math.abs(delta);
         if (delta !== 0 && absDelta < bestAbs) {
           bestAbs = absDelta;
@@ -966,6 +1002,7 @@ export class Timeline {
   getResizeSnapDelta(state, dragState, deltaTime, edge) {
     const threshold = dragState.snapThreshold || this.getSnapThreshold(state);
     if (!threshold) return 0;
+    const biasThreshold = dragState.snapBiasThreshold || this.getSnapBiasThreshold(state);
     const boundariesByTrack = dragState.snapBoundariesByTrack || [];
     const trackId = dragState.clip.trackId;
     const boundaries = boundariesByTrack[trackId];
@@ -973,7 +1010,8 @@ export class Timeline {
     const edgeTime = edge === 'start'
       ? dragState.originalStart + deltaTime
       : dragState.originalStart + dragState.originalDuration + deltaTime;
-    return this.findSnapDelta(edgeTime, boundaries, threshold);
+    const direction = this.getSnapDirection(dragState, deltaTime);
+    return this.findSnapDelta(edgeTime, boundaries, threshold, biasThreshold, direction);
   }
 
   /**
