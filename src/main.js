@@ -895,7 +895,6 @@ class YTPEditor {
     try {
       const json = await file.text();
       this.applyLoadedProject(json, 'Project imported (reimport media files to preview)');
-      localStorage.setItem('ytp-editor-project', json);
       this.hideProjectModal();
     } catch (error) {
       console.error('Failed to import project:', error);
