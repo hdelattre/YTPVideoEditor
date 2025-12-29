@@ -437,28 +437,11 @@ export class Timeline {
 
     const state = this.state.getState();
 
-    // Check if clicking on playhead (anywhere on the vertical line)
-    const playheadX = timeToPixels(state.playhead, state.zoom) - this.scrollX;
-    if (Math.abs(x - playheadX) < 8) {
-      this.dragState = {
-        type: 'playhead',
-        startX: x,
-      };
-      try {
-        this.canvas.setPointerCapture(e.pointerId);
-      } catch {
-        // Ignore pointer capture errors.
-      }
-      return;
-    }
-
     // Check if clicking in ruler area (to jump playhead)
     if (y < RULER_HEIGHT) {
       // Jump playhead to click position
       const newTime = Math.max(0, pixelsToTime(x + this.scrollX, state.zoom));
       this.state.dispatch(actions.setPlayhead(newTime), false);
-
-      // Start dragging playhead
       this.dragState = {
         type: 'playhead',
         startX: x,
@@ -609,7 +592,7 @@ export class Timeline {
     const deltaTime = pixelsToTime(deltaX, state.zoom);
 
     if (this.dragState.type === 'playhead') {
-      // Drag playhead
+      // Drag playhead (ruler only)
       const newTime = Math.max(0, pixelsToTime(x + this.scrollX, state.zoom));
       this.state.dispatch(actions.setPlayhead(newTime), false);
 
