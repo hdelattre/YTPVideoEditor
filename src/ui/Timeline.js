@@ -48,6 +48,8 @@ export class Timeline {
     this.scrollX = 0;
     this.lastZoom = this.state.getState().zoom;
     this.zoomAnchor = null;
+    this.lastPointer = null;
+    this.isPointerOverTimeline = false;
 
     this.setupCanvas();
     this.setupEventListeners();
@@ -268,7 +270,14 @@ export class Timeline {
     const timelineHeight = state.tracks.length * TRACK_HEIGHT + RULER_HEIGHT;
 
     if (this.lastZoom !== state.zoom) {
-      if (this.zoomAnchor !== 'mouse') {
+      if (this.zoomAnchor && this.zoomAnchor.type === 'mouse') {
+        const targetX = timeToPixels(this.zoomAnchor.time, state.zoom);
+        this.scrollX = targetX - this.zoomAnchor.x;
+      } else if (this.isPointerOverTimeline && this.lastPointer) {
+        const timeAtCursor = pixelsToTime(this.scrollX + this.lastPointer.x, this.lastZoom);
+        const targetX = timeToPixels(timeAtCursor, state.zoom);
+        this.scrollX = targetX - this.lastPointer.x;
+      } else {
         const playheadX = timeToPixels(state.playhead, state.zoom);
         this.scrollX = playheadX - visibleWidth / 2;
       }
@@ -588,6 +597,9 @@ export class Timeline {
 
     const state = this.state.getState();
 
+    this.lastPointer = { x, y };
+    this.isPointerOverTimeline = true;
+
     // Update cursor based on hover
     this.updateCursor(x, y, state, e.pointerType || 'mouse');
 
@@ -720,6 +732,9 @@ export class Timeline {
    * @param {PointerEvent} e
    */
   onPointerUp(e) {
+    if (e.type === 'pointerleave') {
+      this.isPointerOverTimeline = false;
+    }
     if (this.dragState && this.dragState.type === 'select') {
       const dragState = this.dragState;
       const state = this.state.getState();
@@ -785,8 +800,13 @@ export class Timeline {
       const delta = e.deltaY > 0 ? -zoomStep : zoomStep;
       const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, state.zoom + delta));
 
-      // Zoom around playhead (consistent with zoom buttons)
-      this.zoomAnchor = 'playhead';
+      const rect = this.canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      const timeAtCursor = pixelsToTime(x + this.scrollX, state.zoom);
+      this.zoomAnchor = { type: 'mouse', x, y, time: timeAtCursor };
+      this.lastPointer = { x, y };
+      this.isPointerOverTimeline = true;
       this.state.dispatch(actions.setZoom(newZoom), false);
 
     } else {
