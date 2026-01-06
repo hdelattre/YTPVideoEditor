@@ -1017,6 +1017,8 @@ class YTPEditor {
   applyLoadedProject(json, statusMessage) {
     this.state.loadFromJSON(json);
     this.clearMediaCaches();
+    this.mediaManager.renderMediaLibrary(this.state.getState());
+    this.schedulePreviewRender();
     this.hideExportCommand();
     this.pendingReassociateMediaId = null;
     this.lastPreviewVideoClipId = null;
