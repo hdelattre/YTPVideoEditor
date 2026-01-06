@@ -960,9 +960,7 @@ class YTPEditor {
       this.updateStatus('Nothing to export');
       return;
     }
-    const warningMessage = result.exportAudioWarning
-      ? 'FFmpeg command ready (some audio tracks undetected; preview those clips to detect)'
-      : null;
+    const warningMessage = this.buildExportWarningMessage(result);
     this.copyExportCommand(result.command, warningMessage);
   }
 
@@ -1055,9 +1053,7 @@ class YTPEditor {
     if (losslessResult.usedLosslessCopy && this.exportModal) {
       const reencodeResult = buildCommand(false);
       if (!reencodeResult || !reencodeResult.command) {
-        const warningMessage = losslessResult.exportAudioWarning
-          ? 'FFmpeg command ready (some audio tracks undetected; preview those clips to detect)'
-          : null;
+        const warningMessage = this.buildExportWarningMessage(losslessResult);
         this.copyExportCommand(losslessResult.command, warningMessage);
         return;
       }
@@ -1070,10 +1066,19 @@ class YTPEditor {
       return;
     }
 
-    const warningMessage = losslessResult.exportAudioWarning
-      ? 'FFmpeg command ready (some audio tracks undetected; preview those clips to detect)'
-      : null;
+    const warningMessage = this.buildExportWarningMessage(losslessResult);
     this.copyExportCommand(losslessResult.command, warningMessage);
+  }
+
+  buildExportWarningMessage(result) {
+    const warnings = [];
+    if (result && result.exportAudioWarning) {
+      warnings.push('some audio tracks undetected; preview those clips to detect');
+    }
+    if (result && result.mergeBlockedByOtherTracks) {
+      warnings.push('some connected clips could not be merged due to other tracks');
+    }
+    return warnings.length > 0 ? `FFmpeg command ready (${warnings.join('; ')})` : null;
   }
 
   /**

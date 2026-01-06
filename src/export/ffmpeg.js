@@ -82,6 +82,15 @@ export function buildFfmpegExportCommand(state, options) {
   segments = rangedSegments;
   if (segments.length === 0) return null;
 
+  const mergedResult = mergeConnectedSegments(segments, {
+    defaultFilters,
+    resolveVideoFilters,
+    resolveAudioFilters,
+    resolveClipVolume,
+  });
+  segments = mergedResult.segments;
+  const mergeBlockedByOtherTracks = mergedResult.mergeBlockedByOtherTracks;
+
   const mediaById = new Map(state.mediaLibrary.map(media => [media.id, media]));
   if (exportSettings.allowLosslessCopy !== false) {
     const copyCommand = buildConcatCopyCommand({
@@ -95,8 +104,8 @@ export function buildFfmpegExportCommand(state, options) {
       resolveClipVolume,
     });
     if (copyCommand) {
-    return copyCommand;
-  }
+      return { ...copyCommand, mergeBlockedByOtherTracks };
+    }
   }
 
   const inputList = [];
@@ -377,6 +386,7 @@ export function buildFfmpegExportCommand(state, options) {
       `${movFlags} -y output.${outputFormat}`,
     exportAudioWarning,
     usedLosslessCopy: false,
+    mergeBlockedByOtherTracks,
   };
 }
 
@@ -666,4 +676,169 @@ function buildAtempoFilters(tempo) {
     filters.push(`atempo=${value}`);
   }
   return filters;
+}
+
+function mergeConnectedSegments(segments, options) {
+  if (!Array.isArray(segments) || segments.length === 0) {
+    return { segments: [], mergeBlockedByOtherTracks: false };
+  }
+
+  const {
+    defaultFilters,
+    resolveVideoFilters,
+    resolveAudioFilters,
+    resolveClipVolume,
+  } = options || {};
+
+  if (!defaultFilters || !resolveVideoFilters || !resolveAudioFilters || !resolveClipVolume) {
+    return { segments: segments.map(segment => ({ ...segment })), mergeBlockedByOtherTracks: false };
+  }
+
+  const TIME_EPSILON_MS = 0.5;
+  const isCloseTime = (a, b) => Math.abs(a - b) <= TIME_EPSILON_MS;
+
+  const videoFiltersCache = new Map();
+  const audioFiltersCache = new Map();
+  const volumeCache = new Map();
+
+  const getVideoFilters = (clip) => {
+    if (!clip) return null;
+    if (videoFiltersCache.has(clip.id)) return videoFiltersCache.get(clip.id);
+    const resolved = resolveVideoFilters(clip, defaultFilters);
+    videoFiltersCache.set(clip.id, resolved);
+    return resolved;
+  };
+
+  const getAudioFilters = (clip) => {
+    if (!clip) return null;
+    if (audioFiltersCache.has(clip.id)) return audioFiltersCache.get(clip.id);
+    const resolved = resolveAudioFilters(clip, defaultFilters);
+    audioFiltersCache.set(clip.id, resolved);
+    return resolved;
+  };
+
+  const getVolume = (clip) => {
+    if (!clip) return null;
+    if (volumeCache.has(clip.id)) return volumeCache.get(clip.id);
+    const volume = resolveClipVolume(clip, defaultFilters);
+    volumeCache.set(clip.id, volume);
+    return volume;
+  };
+
+  const areVideoFiltersEqual = (a, b) => (
+    a.brightness === b.brightness &&
+    a.contrast === b.contrast &&
+    a.saturation === b.saturation &&
+    a.hue === b.hue &&
+    a.gamma === b.gamma &&
+    a.rotate === b.rotate &&
+    a.flipH === b.flipH &&
+    a.flipV === b.flipV &&
+    a.blur === b.blur &&
+    a.sharpen === b.sharpen &&
+    a.denoise === b.denoise &&
+    a.fadeIn === b.fadeIn &&
+    a.fadeOut === b.fadeOut
+  );
+
+  const areAudioFiltersEqual = (a, b) => (
+    a.volume === b.volume &&
+    a.bass === b.bass &&
+    a.treble === b.treble &&
+    a.normalize === b.normalize &&
+    a.pan === b.pan &&
+    a.pitch === b.pitch &&
+    a.fadeIn === b.fadeIn &&
+    a.fadeOut === b.fadeOut
+  );
+
+  const areVolumesEqual = (a, b) => {
+    if (!Number.isFinite(a) || !Number.isFinite(b)) return a === b;
+    return Math.abs(a - b) <= 1e-6;
+  };
+
+  const isContinuousClipPair = (prevClip, nextClip, boundaryTime, kind) => {
+    if (!prevClip || !nextClip) return false;
+    if (prevClip.mediaId !== nextClip.mediaId) return false;
+
+    const prevSpeed = prevClip.speed || 1;
+    const nextSpeed = nextClip.speed || 1;
+    if (prevSpeed !== nextSpeed) return false;
+    if (Boolean(prevClip.reversed) !== Boolean(nextClip.reversed)) return false;
+    if (prevClip.reversed) return false;
+
+    const prevEnd = prevClip.start + prevClip.duration;
+    if (!isCloseTime(prevEnd, boundaryTime) || !isCloseTime(nextClip.start, boundaryTime)) {
+      return false;
+    }
+
+    const expectedTrimStart = (prevClip.trimStart || 0) + prevClip.duration * prevSpeed;
+    if (!isCloseTime(expectedTrimStart, nextClip.trimStart || 0)) return false;
+
+    if (kind === 'video') {
+      if (prevClip.visible === false || nextClip.visible === false) return false;
+      const prevFilters = getVideoFilters(prevClip);
+      const nextFilters = getVideoFilters(nextClip);
+      if (!prevFilters || !nextFilters || !areVideoFiltersEqual(prevFilters, nextFilters)) {
+        return false;
+      }
+    }
+
+    if (kind === 'audio') {
+      if (Boolean(prevClip.muted) !== Boolean(nextClip.muted)) return false;
+      const prevFilters = getAudioFilters(prevClip);
+      const nextFilters = getAudioFilters(nextClip);
+      if (!prevFilters || !nextFilters || !areAudioFiltersEqual(prevFilters, nextFilters)) {
+        return false;
+      }
+      const prevVolume = getVolume(prevClip);
+      const nextVolume = getVolume(nextClip);
+      if (!areVolumesEqual(prevVolume, nextVolume)) return false;
+    }
+
+    return true;
+  };
+
+  const canMergeClip = (prevClip, nextClip, boundaryTime, kind) => {
+    if (!prevClip && !nextClip) return { ok: true, reason: 'empty' };
+    if (!prevClip || !nextClip) return { ok: false, reason: 'different' };
+    if (prevClip.id === nextClip.id) return { ok: true, reason: 'same-clip' };
+    if (isContinuousClipPair(prevClip, nextClip, boundaryTime, kind)) {
+      return { ok: true, reason: 'continuous' };
+    }
+    return { ok: false, reason: 'different' };
+  };
+
+  const merged = [{ ...segments[0] }];
+  let mergeBlockedByOtherTracks = false;
+
+  for (let i = 1; i < segments.length; i += 1) {
+    const segment = segments[i];
+    const last = merged[merged.length - 1];
+
+    if (!last || !isCloseTime(last.end, segment.start)) {
+      merged.push({ ...segment });
+      continue;
+    }
+
+    const boundaryTime = segment.start;
+    const audioMerge = canMergeClip(last.audioClip, segment.audioClip, boundaryTime, 'audio');
+    const videoMerge = canMergeClip(last.videoClip, segment.videoClip, boundaryTime, 'video');
+
+    if (audioMerge.ok && videoMerge.ok) {
+      last.end = segment.end;
+      continue;
+    }
+
+    if (
+      (audioMerge.reason === 'continuous' && !videoMerge.ok) ||
+      (videoMerge.reason === 'continuous' && !audioMerge.ok)
+    ) {
+      mergeBlockedByOtherTracks = true;
+    }
+
+    merged.push({ ...segment });
+  }
+
+  return { segments: merged, mergeBlockedByOtherTracks };
 }
