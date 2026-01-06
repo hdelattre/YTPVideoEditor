@@ -423,7 +423,7 @@ class YTPEditor {
 
     // Help modal
     document.addEventListener('keydown', (e) => {
-      if (e.key === '?' || e.key === 'F1') {
+      if (e.key === 'F1') {
         e.preventDefault();
         this.showHelp();
       }
