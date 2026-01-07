@@ -92,7 +92,7 @@ export function buildFfmpegExportCommand(state, options) {
   const mergeBlockedByOtherTracks = mergedResult.mergeBlockedByOtherTracks;
 
   const mediaById = new Map(state.mediaLibrary.map(media => [media.id, media]));
-  if (exportSettings.allowLosslessCopy !== false) {
+  if (exportSettings.allowLosslessCopy !== false && exportSettings.deClick !== true) {
     const copyCommand = buildConcatCopyCommand({
       segments,
       mediaById,
@@ -311,6 +311,10 @@ export function buildFfmpegExportCommand(state, options) {
         const volume = audioClip.muted ? 0 : resolveClipVolume(audioClip, defaultFilters);
         if (volume !== 1) {
           audioFilters.push(`volume=${volume}`);
+        }
+
+        if (exportSettings.deClick === true) {
+          appendDeClickFilters(audioFilters, durationMs);
         }
 
         filterParts.push(
@@ -676,6 +680,23 @@ function buildAtempoFilters(tempo) {
     filters.push(`atempo=${value}`);
   }
   return filters;
+}
+
+function appendDeClickFilters(audioFilters, durationMs) {
+  if (!Array.isArray(audioFilters)) return;
+  const durationSec = durationMs / 1000;
+  if (!Number.isFinite(durationSec) || durationSec <= 0) return;
+
+  const target = 0.005;
+  const fade = Math.min(target, durationSec / 2);
+  if (fade <= 0) return;
+
+  const fadeValue = fade.toFixed(3).replace(/\.?0+$/, '');
+  const start = Math.max(0, durationSec - fade);
+  const startValue = start.toFixed(3).replace(/\.?0+$/, '');
+
+  audioFilters.push(`afade=t=in:st=0:d=${fadeValue}`);
+  audioFilters.push(`afade=t=out:st=${startValue}:d=${fadeValue}`);
 }
 
 function mergeConnectedSegments(segments, options) {

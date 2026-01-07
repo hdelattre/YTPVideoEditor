@@ -275,6 +275,12 @@ export class PropertiesPanel {
 
         <h3 class="property-section-title">Default Audio Filters</h3>
         <div class="property-group">
+          <input type="checkbox" class="property-checkbox" id="project-declick"
+                 ${exportSettings.deClick ? 'checked' : ''}>
+          <label class="property-label" for="project-declick">De-click cuts (re-encode)</label>
+          <div class="property-help">Export-only: adds tiny fades at segment boundaries to reduce clicks/pops.</div>
+        </div>
+        <div class="property-group">
           <label class="property-label" for="project-audio-volume">Volume</label>
           <input type="range" class="property-slider" id="project-audio-volume"
                  min="0" max="2" step="0.01" value="${defaultFilters.audio.volume}"
@@ -403,6 +409,13 @@ export class PropertiesPanel {
           input.addEventListener('input', handler);
         }
       });
+
+      const deClickInput = document.getElementById('project-declick');
+      if (deClickInput) {
+        deClickInput.addEventListener('change', (e) => {
+          editor.state.dispatch(actions.updateExportSettings({ deClick: e.target.checked }));
+        });
+      }
 
       const exportStartInput = document.getElementById('project-export-start');
       const exportEndInput = document.getElementById('project-export-end');

@@ -90,6 +90,7 @@
  * @property {string} format
  * @property {number} rangeStart - export start time in ms
  * @property {number|null} rangeEnd - export end time in ms, null for full length
+ * @property {boolean} deClick - apply tiny fades at cut points to reduce clicks/pops
  * @property {boolean} allowLosslessCopy - allow concat copy when possible
  */
 

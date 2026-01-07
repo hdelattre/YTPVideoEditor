@@ -15,6 +15,7 @@ export const DEFAULT_EXPORT_SETTINGS = {
   format: 'mp4',
   rangeStart: 0,
   rangeEnd: null,
+  deClick: true,
   allowLosslessCopy: true,
 };
 
