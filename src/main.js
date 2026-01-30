@@ -1413,10 +1413,13 @@ class YTPEditor {
       const isMuted = topmostAudioClip.muted || false;
       const isReversed = topmostAudioClip.reversed === true;
       const targetVolume = isMuted ? 0 : (clipVolume * this.masterVolume);
+      const safeVolume = Number.isFinite(targetVolume)
+        ? Math.max(0, Math.min(1, targetVolume))
+        : 0;
       const clipChanged = this.lastPreviewAudioClipId !== topmostAudioClip.id;
       const shouldSeek = shouldResync || clipChanged || (!isReversed && audio.paused);
-      audio.volume = targetVolume;
-      audio.muted = targetVolume === 0;
+      audio.volume = safeVolume;
+      audio.muted = safeVolume === 0;
 
       if (state.isPlaying) {
         if (isReversed) {
