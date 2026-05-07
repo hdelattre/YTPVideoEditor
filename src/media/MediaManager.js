@@ -1,5 +1,5 @@
 /**
- * @fileoverview Media library and upload manager
+ * @fileoverview Media library and import manager
  */
 
 import * as actions from '../core/actions.js';
@@ -14,10 +14,10 @@ export class MediaManager {
   }
 
   /**
-   * Handle file upload
+   * Handle file import
    * @param {Event} e
    */
-  async handleFileUpload(e) {
+  async handleFileImport(e) {
     const files = Array.from(e.target.files || []);
 
     for (const file of files) {
@@ -75,7 +75,6 @@ export class MediaManager {
           duration: metadata.duration,
           width: metadata.width,
           height: metadata.height,
-          uploadedAt: Date.now(),
         }));
 
         this.editor.updateStatus(`Loaded ${file.name}`);
@@ -87,7 +86,7 @@ export class MediaManager {
   }
 
   /**
-   * Find a missing media entry that matches an uploaded file
+   * Find a missing media entry that matches an imported file
    * @param {File} file
    * @param {{duration: number, width: number, height: number}} metadata
    * @returns {import('../core/types.js').Media|null}
@@ -126,7 +125,7 @@ export class MediaManager {
   }
 
   /**
-   * Find an existing loaded media entry that matches an uploaded file
+   * Find an existing loaded media entry that matches an imported file
    * @param {File} file
    * @param {{duration: number, width: number, height: number}} metadata
    * @returns {import('../core/types.js').Media|null}

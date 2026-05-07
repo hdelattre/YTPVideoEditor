@@ -120,7 +120,6 @@
  * @property {number} width - Video width (px)
  * @property {number} height - Video height (px)
  * @property {string} [thumbnail] - Base64 thumbnail data URL
- * @property {number} uploadedAt - Timestamp of upload
  * @property {Transcript} [transcript] - Loaded transcript data
  */
 

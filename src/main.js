@@ -78,7 +78,7 @@ class YTPEditor {
     this.state.subscribe((state) => this.onStateChange(state));
 
     console.log('YTP Editor initialized');
-    this.updateStatus('Ready - Upload media to get started');
+    this.updateStatus('Ready - Import media to get started');
     this.loadProject();
   }
 
@@ -145,7 +145,7 @@ class YTPEditor {
     this.saveLocalBtn = document.getElementById('saveLocalBtn');
     this.saveExportBtn = document.getElementById('saveExportBtn');
     this.saveCancelBtn = document.getElementById('saveCancelBtn');
-    this.uploadBtn = document.getElementById('uploadBtn');
+    this.importBtn = document.getElementById('importBtn');
     this.fileInput = document.getElementById('fileInput');
     this.playBtn = document.getElementById('playBtn');
     this.pauseBtn = document.getElementById('pauseBtn');
@@ -186,12 +186,12 @@ class YTPEditor {
    * Setup event listeners for UI controls
    */
   setupEventListeners() {
-    // File upload
-    const uploadBtn = this.uploadBtn;
+    // File import
+    const importBtn = this.importBtn;
     const fileInput = this.fileInput;
 
-    uploadBtn.addEventListener('click', () => fileInput.click());
-    fileInput.addEventListener('change', (e) => this.mediaManager.handleFileUpload(e));
+    importBtn.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', (e) => this.mediaManager.handleFileImport(e));
 
     // Playback controls
     this.playBtn.addEventListener('click', () => this.play());
