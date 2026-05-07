@@ -53,7 +53,7 @@ export function buildFfmpegExportCommand(state, options) {
   if (segments.length === 0) return null;
 
   let exportAudioWarning = false;
-  const rangeStart = Number.isFinite(exportSettings.rangeStart)
+  let rangeStart = Number.isFinite(exportSettings.rangeStart)
     ? Math.max(0, exportSettings.rangeStart)
     : 0;
   let rangeEnd = null;
@@ -66,6 +66,15 @@ export function buildFfmpegExportCommand(state, options) {
     if (Number.isFinite(endValue)) {
       rangeEnd = Math.max(0, endValue);
     }
+  }
+
+  if (exportSettings.trimEmptySpace !== false) {
+    const contentBounds = getOccupiedSegmentBounds(segments);
+    if (!contentBounds) return null;
+    rangeStart = Math.max(rangeStart, contentBounds.start);
+    rangeEnd = rangeEnd !== null
+      ? Math.min(rangeEnd, contentBounds.end)
+      : contentBounds.end;
   }
 
   if (rangeEnd !== null && rangeEnd <= rangeStart) {
@@ -624,6 +633,17 @@ function getTopmostSegments(state, mediaInfo) {
   }
 
   return merged;
+}
+
+function getOccupiedSegmentBounds(segments) {
+  if (!Array.isArray(segments)) return null;
+  const occupied = segments.filter(segment => segment.audioClip || segment.videoClip);
+  if (occupied.length === 0) return null;
+
+  return {
+    start: Math.min(...occupied.map(segment => segment.start)),
+    end: Math.max(...occupied.map(segment => segment.end)),
+  };
 }
 
 /**

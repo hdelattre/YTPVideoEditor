@@ -88,6 +88,7 @@
  * @property {string} audioBitrate
  * @property {number} sampleRate
  * @property {string} format
+ * @property {boolean} trimEmptySpace - trim empty leading/trailing timeline space
  * @property {number} rangeStart - export start time in ms
  * @property {number|null} rangeEnd - export end time in ms, null for full length
  * @property {boolean} deClick - apply tiny fades at cut points to reduce clicks/pops

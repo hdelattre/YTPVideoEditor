@@ -13,6 +13,7 @@ export const DEFAULT_EXPORT_SETTINGS = {
   audioBitrate: '192k',
   sampleRate: 44100,
   format: 'mp4',
+  trimEmptySpace: true,
   rangeStart: 0,
   rangeEnd: null,
   deClick: true,

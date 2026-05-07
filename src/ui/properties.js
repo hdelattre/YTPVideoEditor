@@ -185,6 +185,11 @@ export class PropertiesPanel {
                    aria-label="Export end time in seconds">
           </div>
         </div>
+        <div class="property-group">
+          <input type="checkbox" class="property-checkbox" id="project-trim-empty-space"
+                 ${exportSettings.trimEmptySpace !== false ? 'checked' : ''}>
+          <label class="property-label" for="project-trim-empty-space">Trim empty space</label>
+        </div>
 
         <h3 class="property-section-title">Default Video Filters</h3>
         <div class="property-group">
@@ -414,6 +419,13 @@ export class PropertiesPanel {
       if (deClickInput) {
         deClickInput.addEventListener('change', (e) => {
           editor.state.dispatch(actions.updateExportSettings({ deClick: e.target.checked }));
+        });
+      }
+
+      const trimEmptySpaceInput = document.getElementById('project-trim-empty-space');
+      if (trimEmptySpaceInput) {
+        trimEmptySpaceInput.addEventListener('change', (e) => {
+          editor.state.dispatch(actions.updateExportSettings({ trimEmptySpace: e.target.checked }));
         });
       }
 
