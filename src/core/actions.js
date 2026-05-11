@@ -3,7 +3,7 @@
  * These are pure functions that take state and return new state
  */
 
-import { DEFAULT_CLIP_COLOR, DEFAULT_SPEED } from './constants.js';
+import { DEFAULT_CLIP_COLOR, DEFAULT_SPEED, MIN_CLIP_SPEED, MAX_CLIP_SPEED } from './constants.js';
 import { createId } from '../utils/id.js';
 
 /**
@@ -553,7 +553,7 @@ export function reverseClip(clipId) {
 /**
  * Adjust clip speed
  * @param {string} clipId
- * @param {number} speed - Speed multiplier (0.25 to 4.0)
+ * @param {number} speed - Speed multiplier
  * @returns {import('./types.js').ActionFunction}
  */
 export function setClipSpeed(clipId, speed) {
@@ -562,7 +562,7 @@ export function setClipSpeed(clipId, speed) {
     if (clip) {
       const previousSpeed = clip.speed || DEFAULT_SPEED;
       const sourceDuration = clip.duration * previousSpeed;
-      clip.speed = Math.max(0.25, Math.min(4.0, speed));
+      clip.speed = Math.max(MIN_CLIP_SPEED, Math.min(MAX_CLIP_SPEED, speed));
       // Adjust duration based on speed, preserving the source window
       clip.duration = sourceDuration / clip.speed;
     }
@@ -583,7 +583,7 @@ export function setClipsSpeed(clipIds, speed) {
       if (idSet.has(clip.id)) {
         const previousSpeed = clip.speed || DEFAULT_SPEED;
         const sourceDuration = clip.duration * previousSpeed;
-        clip.speed = Math.max(0.25, Math.min(4.0, speed));
+        clip.speed = Math.max(MIN_CLIP_SPEED, Math.min(MAX_CLIP_SPEED, speed));
         clip.duration = sourceDuration / clip.speed;
       }
     });

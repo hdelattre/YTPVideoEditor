@@ -3,7 +3,7 @@
  */
 
 import * as actions from '../core/actions.js';
-import { createDefaultFilters } from '../core/constants.js';
+import { createDefaultFilters, MIN_CLIP_SPEED, MAX_CLIP_SPEED } from '../core/constants.js';
 import { escapeHtml, formatSeconds } from '../utils/format.js';
 import { getExportResolution } from '../export/ffmpeg.js';
 import { EXPORT_PRESETS, getExportPresetMatch } from '../export/settings.js';
@@ -555,7 +555,7 @@ export class PropertiesPanel {
         <div class="property-group">
           <label class="property-label" for="multi-speed">Speed ${mixedTag(speedMixed)}</label>
           <input type="range" class="property-slider" id="multi-speed"
-                 min="0.25" max="4" step="0.25" value="${speedValue}">
+                 min="${MIN_CLIP_SPEED}" max="${MAX_CLIP_SPEED}" step="0.25" value="${speedValue}">
           <div style="text-align: center; font-size: 12px; margin-top: 4px;">
             <span id="multi-speed-value">${speedValue}x</span>
           </div>
@@ -701,7 +701,7 @@ export class PropertiesPanel {
       <div class="property-group">
         <label class="property-label" for="${idPrefix}-speed">Speed</label>
         <input type="range" class="property-slider" id="${idPrefix}-speed"
-               min="0.25" max="4" step="0.25" value="${clip.speed || 1}">
+               min="${MIN_CLIP_SPEED}" max="${MAX_CLIP_SPEED}" step="0.25" value="${clip.speed || 1}">
         <div style="text-align: center; font-size: 12px; margin-top: 4px;">
           <span id="${idPrefix}-speed-value">${clip.speed || 1}x</span>
         </div>

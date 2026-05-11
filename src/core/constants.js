@@ -69,6 +69,8 @@ export const DEFAULT_TRACK_COUNT = 3;
 export const DEFAULT_CLIP_COLOR = COLORS.clipDefault;
 export const DEFAULT_CLIP_DURATION = 5000; // ms
 export const DEFAULT_SPEED = 1.0;
+export const MIN_CLIP_SPEED = 0.25;
+export const MAX_CLIP_SPEED = 12.0;
 
 export const DEFAULT_VIDEO_FILTERS = {
   brightness: 0,

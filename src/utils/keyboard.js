@@ -3,7 +3,7 @@
  * YTP-optimized keyboard controls for rapid editing
  */
 
-import { SHORTCUTS, JUMP_INTERVAL, MIN_ZOOM, MAX_ZOOM, ZOOM_STEP } from '../core/constants.js';
+import { SHORTCUTS, JUMP_INTERVAL, MIN_ZOOM, MAX_ZOOM, ZOOM_STEP, MIN_CLIP_SPEED, MAX_CLIP_SPEED } from '../core/constants.js';
 import * as actions from '../core/actions.js';
 import { createId } from './id.js';
 
@@ -320,7 +320,7 @@ export class KeyboardManager {
 
     if (selectedClips.length > 0) {
       const currentSpeed = selectedClips[0].speed || 1.0;
-      const newSpeed = Math.max(0.25, Math.min(4.0, currentSpeed + delta));
+      const newSpeed = Math.max(MIN_CLIP_SPEED, Math.min(MAX_CLIP_SPEED, currentSpeed + delta));
       if (selectedClips.length > 1) {
         this.state.dispatch(actions.setClipsSpeed(selectedIds, newSpeed));
       } else {

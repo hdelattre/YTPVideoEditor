@@ -177,7 +177,7 @@ export function buildFfmpegExportCommand(state, options) {
           videoFilters.push('setpts=PTS-STARTPTS');
         }
         if (sourceWindow.speed && sourceWindow.speed !== 1) {
-          videoFilters.push(`setpts=PTS-STARTPTS/${sourceWindow.speed}`);
+          videoFilters.push(`setpts=(PTS-STARTPTS)/${sourceWindow.speed}`);
         }
 
         const vf = resolveVideoFilters(videoClip, defaultFilters);

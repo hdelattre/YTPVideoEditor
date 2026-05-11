@@ -13,12 +13,7 @@ import { PropertiesPanel } from './ui/properties.js';
 import { buildFfmpegExportCommand } from './export/ffmpeg.js';
 import { MediaManager } from './media/MediaManager.js';
 import { PlaybackCache } from './media/PlaybackCache.js';
-import {
-  MIN_ZOOM,
-  MAX_ZOOM,
-  ZOOM_STEP,
-  createDefaultFilters,
-} from './core/constants.js';
+import { MIN_ZOOM, MAX_ZOOM, ZOOM_STEP, MIN_CLIP_SPEED, MAX_CLIP_SPEED, createDefaultFilters } from './core/constants.js';
 import { createDefaultExportSettings } from './export/settings.js';
 
 /**
@@ -1424,7 +1419,7 @@ class YTPEditor {
       if (state.isPlaying) {
         if (isReversed) {
           this.stopReverseAudio();
-          audio.playbackRate = Math.max(0.25, Math.min(4, topmostAudioClip.speed || 1));
+          audio.playbackRate = Math.max(MIN_CLIP_SPEED, Math.min(MAX_CLIP_SPEED, topmostAudioClip.speed || 1));
           if (audio.paused) {
             audio.play().catch(() => {});
           }
@@ -1435,7 +1430,7 @@ class YTPEditor {
           }
         } else {
           this.stopReverseAudio();
-          audio.playbackRate = Math.max(0.25, Math.min(4, topmostAudioClip.speed || 1));
+          audio.playbackRate = Math.max(MIN_CLIP_SPEED, Math.min(MAX_CLIP_SPEED, topmostAudioClip.speed || 1));
           if (shouldSeek) {
             audio.currentTime = clipTime;
           }
@@ -1487,7 +1482,7 @@ class YTPEditor {
       const mediaChanged = this.lastPreviewVideoMediaId !== videoClipMedia.id;
       const clipChanged = this.lastPreviewVideoClipId !== topmostVideoClip.id || mediaChanged;
       const shouldSeek = shouldResync || clipChanged || (!isReversed && video.paused);
-      const targetRate = Math.max(0.25, Math.min(4, topmostVideoClip.speed || 1));
+      const targetRate = Math.max(MIN_CLIP_SPEED, Math.min(MAX_CLIP_SPEED, topmostVideoClip.speed || 1));
 
       if (!canUseAudioElementForVideo) {
         video.volume = 0;
