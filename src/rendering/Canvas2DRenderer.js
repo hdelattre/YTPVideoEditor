@@ -64,7 +64,7 @@ export class Canvas2DRenderer extends Renderer {
     } else {
       ctx.rect(x + 0.5, y + 0.5, Math.max(0, width - 1), Math.max(0, height - 1));
     }
-    ctx.strokeStyle = selected ? '#b8c0ff' : 'rgba(255, 255, 255, 0.18)';
+    ctx.strokeStyle = selected ? '#8db8d5' : 'rgba(255, 255, 255, 0.18)';
     ctx.lineWidth = selected ? 2 : 1;
     ctx.stroke();
     ctx.restore();
@@ -367,8 +367,8 @@ export class Canvas2DRenderer extends Renderer {
   drawSelectionRect(x, y, width, height) {
     const ctx = this.ctx;
     ctx.save();
-    ctx.fillStyle = 'rgba(111, 125, 242, 0.11)';
-    ctx.strokeStyle = 'rgba(139, 151, 255, 0.7)';
+    ctx.fillStyle = 'rgba(51, 111, 156, 0.12)';
+    ctx.strokeStyle = 'rgba(82, 137, 178, 0.74)';
     ctx.lineWidth = 1;
     ctx.fillRect(x, y, width, height);
     ctx.strokeRect(x, y, width, height);

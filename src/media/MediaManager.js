@@ -505,7 +505,7 @@ export class MediaManager {
       trackId: 0,
       start: state.playhead,
       duration: media.duration,
-      color: '#586fc9',
+      color: '#3f7182',
     }));
 
     this.editor.updateStatus(`Added ${media.name} to timeline`);

@@ -19,7 +19,7 @@
 
 .media-item.selected {
   border-color: var(--color-primary);
-  background: rgba(74, 158, 255, 0.1);
+  background: rgba(51, 111, 156, 0.1);
 }
 
 .media-item.missing {
@@ -577,7 +577,7 @@ input[type="range"] {
   -webkit-appearance: none;
   appearance: none;
   background: transparent;
-  --range-fill: rgba(74, 158, 255, 0.6);
+  --range-fill: rgba(51, 111, 156, 0.72);
   --range-track: var(--color-border);
   --range-percent: 0%;
   cursor: pointer;
@@ -767,7 +767,7 @@ input[type="range"]::-moz-range-thumb:hover {
 
 .media-item.selected {
   background: var(--color-primary-subtle);
-  border-color: rgba(111, 125, 242, 0.62);
+  border-color: rgba(51, 111, 156, 0.7);
   box-shadow: inset 2px 0 0 var(--color-primary);
 }
 
@@ -1064,7 +1064,7 @@ textarea.property-input {
 
 .builder-option.is-selected {
   background: var(--color-primary-subtle);
-  border-color: rgba(111, 125, 242, 0.58);
+  border-color: rgba(51, 111, 156, 0.66);
 }
 
 .transcript-time,
@@ -1108,7 +1108,7 @@ input[type="range"]::-webkit-slider-thumb {
   width: 13px;
   height: 13px;
   margin-top: -5px;
-  background: #c9ceff;
+  background: #bdd8eb;
   border: 2px solid var(--color-primary);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
 }
@@ -1121,7 +1121,7 @@ input[type="range"]::-moz-range-progress {
 input[type="range"]::-moz-range-thumb {
   width: 11px;
   height: 11px;
-  background: #c9ceff;
+  background: #bdd8eb;
   border: 2px solid var(--color-primary);
 }
 

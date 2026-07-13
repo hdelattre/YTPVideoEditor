@@ -118,9 +118,9 @@
 }
 
 .timeline-track-control.is-active {
-  color: #c8cdff;
+  color: #bed7ea;
   background: var(--color-primary-subtle);
-  border-color: rgba(111, 125, 242, 0.38);
+  border-color: rgba(51, 111, 156, 0.5);
 }
 
 .timeline-track-control:nth-child(1):not(.is-active) {

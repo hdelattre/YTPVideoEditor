@@ -1171,7 +1171,7 @@ export class Timeline {
       trackId: trackId,
       start: Math.max(0, time),
       duration: media.duration,
-      color: '#586fc9',
+      color: '#3f7182',
     }));
   }
 

@@ -590,13 +590,13 @@ export class PropertiesPanel {
 
       const speedValue = firstClip.speed || 1;
       const volumeValue = editor.resolveClipVolume(firstClip, defaultFilters);
-      const colorValue = firstClip.color || '#586fc9';
+      const colorValue = firstClip.color || '#3f7182';
       const muteMixed = !allSame(clip => Boolean(clip.muted));
       const visibleMixed = !allSame(clip => clip.visible !== false);
       const reverseMixed = !allSame(clip => Boolean(clip.reversed));
       const speedMixed = !allSame(clip => clip.speed || 1);
       const volumeMixed = !allSame(clip => editor.resolveClipVolume(clip, defaultFilters));
-      const colorMixed = !allSame(clip => clip.color || '#586fc9');
+      const colorMixed = !allSame(clip => clip.color || '#3f7182');
 
       propertiesContent.innerHTML = `
         <div class="properties-header">Properties</div>
@@ -780,7 +780,7 @@ export class PropertiesPanel {
       </div>
       <div class="property-group">
         <label class="property-label" for="${idPrefix}-color">Color</label>
-        <input type="color" class="color-picker" id="${idPrefix}-color" value="${clip.color || '#586fc9'}">
+        <input type="color" class="color-picker" id="${idPrefix}-color" value="${clip.color || '#3f7182'}">
       </div>
 
       <h3 class="property-section-title">Video Filters</h3>
@@ -1400,7 +1400,7 @@ export class PropertiesPanel {
         if (!mediaId) return;
         const trackId = clip ? clip.trackId : 0;
         const baseName = clip ? clip.name : (clipMedia ? clipMedia.name : 'Media');
-        const baseColor = clip ? clip.color : '#586fc9';
+        const baseColor = clip ? clip.color : '#3f7182';
         let insertTime = 0;
         let inserted = 0;
         const clipsToCopy = [];

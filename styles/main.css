@@ -26,17 +26,17 @@
   --color-text: #f0f1f3;
   --color-text-soft: #c5c8ce;
   --color-text-muted: #9499a4;
-  --color-primary: #6f7df2;
-  --color-primary-hover: #8290ff;
-  --color-primary-active: #5e6be0;
-  --color-primary-subtle: rgba(111, 125, 242, 0.12);
+  --color-primary: #336f9c;
+  --color-primary-hover: #3f80af;
+  --color-primary-active: #2b6088;
+  --color-primary-subtle: rgba(51, 111, 156, 0.14);
   --color-secondary: #24272e;
   --color-secondary-hover: #2d3038;
   --color-secondary-active: #343840;
   --color-success: #4fcf8b;
   --color-warning: #e8ad5b;
   --color-danger: #ee6a6a;
-  --color-focus: rgba(111, 125, 242, 0.32);
+  --color-focus: rgba(51, 111, 156, 0.34);
 
   --spacing-xs: 4px;
   --spacing-sm: 8px;
@@ -122,7 +122,7 @@ svg {
   flex: 0 0 auto;
   display: grid;
   place-items: center;
-  color: #e7e9ff;
+  color: #e3eff7;
   background: var(--color-primary);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 7px;
