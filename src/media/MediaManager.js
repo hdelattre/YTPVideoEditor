@@ -14,6 +14,94 @@ export class MediaManager {
   }
 
   /**
+   * Return duration mismatch details, ignoring harmless metadata drift.
+   * @param {number} expectedMs
+   * @param {number} actualMs
+   * @returns {{expectedMs: number, actualMs: number, differenceMs: number}|null}
+   */
+  getDurationMismatch(expectedMs, actualMs) {
+    if (!Number.isFinite(expectedMs) || expectedMs <= 0) return null;
+    if (!Number.isFinite(actualMs) || actualMs <= 0) return null;
+    const differenceMs = Math.abs(expectedMs - actualMs);
+    const toleranceMs = Math.max(500, Math.min(2000, expectedMs * 0.002));
+    return differenceMs > toleranceMs
+      ? { expectedMs, actualMs, differenceMs }
+      : null;
+  }
+
+  /**
+   * Format a media duration for comparison UI.
+   * @param {number} durationMs
+   * @returns {string}
+   */
+  formatDuration(durationMs) {
+    const totalSeconds = Math.max(0, durationMs / 1000);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    const secondsText = seconds.toFixed(2).padStart(5, '0');
+    return hours > 0
+      ? `${hours}:${String(minutes).padStart(2, '0')}:${secondsText}`
+      : `${minutes}:${secondsText}`;
+  }
+
+  /**
+   * Show the in-app duration mismatch decision.
+   * @param {import('../core/types.js').Media} expectedMedia
+   * @param {File} file
+   * @param {{duration: number}} metadata
+   * @param {{allowImportAsNew?: boolean}} [options]
+   * @returns {Promise<'use'|'new'|'cancel'>}
+   */
+  showDurationMismatch(expectedMedia, file, metadata, options = {}) {
+    const modal = document.getElementById('mediaMismatchModal');
+    const message = document.getElementById('mediaMismatchMessage');
+    const expected = document.getElementById('mediaMismatchExpected');
+    const actual = document.getElementById('mediaMismatchActual');
+    const useBtn = document.getElementById('mediaMismatchUseBtn');
+    const newBtn = document.getElementById('mediaMismatchNewBtn');
+    const cancelBtn = document.getElementById('mediaMismatchCancelBtn');
+    const closeBtn = document.getElementById('mediaMismatchCloseBtn');
+    if (!modal || !message || !expected || !actual || !useBtn || !newBtn || !cancelBtn || !closeBtn) {
+      return Promise.resolve('cancel');
+    }
+
+    message.textContent = `${file.name} is a different length from the saved source ${expectedMedia.name}.`;
+    expected.textContent = this.formatDuration(expectedMedia.duration);
+    actual.textContent = this.formatDuration(metadata.duration);
+    newBtn.hidden = !options.allowImportAsNew;
+    modal.style.display = 'flex';
+    useBtn.focus();
+
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (choice) => {
+        if (settled) return;
+        settled = true;
+        modal.style.display = 'none';
+        useBtn.onclick = null;
+        newBtn.onclick = null;
+        cancelBtn.onclick = null;
+        closeBtn.onclick = null;
+        modal.onclick = null;
+        document.removeEventListener('keydown', onKeyDown);
+        resolve(choice);
+      };
+      const onKeyDown = (event) => {
+        if (event.key === 'Escape') finish('cancel');
+      };
+      useBtn.onclick = () => finish('use');
+      newBtn.onclick = () => finish('new');
+      cancelBtn.onclick = () => finish('cancel');
+      closeBtn.onclick = () => finish('cancel');
+      modal.onclick = (event) => {
+        if (event.target === modal) finish('cancel');
+      };
+      document.addEventListener('keydown', onKeyDown);
+    });
+  }
+
+  /**
    * Handle file import
    * @param {Event} e
    */
@@ -30,7 +118,18 @@ export class MediaManager {
       const isAudioOnly = file.type.startsWith('audio/');
       const isVideoType = file.type.startsWith('video/');
 
-      const missingMatch = this.findMissingMediaMatch(file, metadata);
+      let missingMatch = this.findMissingMediaMatch(file, metadata);
+      const sameNameMissing = missingMatch || this.findMissingMediaNameMatch(file);
+      const mismatch = sameNameMissing
+        ? this.getDurationMismatch(sameNameMissing.duration, metadata.duration)
+        : null;
+      if (sameNameMissing && mismatch) {
+        const choice = await this.showDurationMismatch(sameNameMissing, file, metadata, {
+          allowImportAsNew: true,
+        });
+        if (choice === 'cancel') continue;
+        missingMatch = choice === 'use' ? sameNameMissing : null;
+      }
       if (missingMatch) {
         const mediaId = missingMatch.id;
         this.editor.playbackCache.revokeObjectUrl(mediaId);
@@ -122,6 +221,20 @@ export class MediaManager {
     });
 
     return best;
+  }
+
+  /**
+   * Find an unloaded saved source with the same filename, even when metadata differs.
+   * @param {File} file
+   * @returns {import('../core/types.js').Media|null}
+   */
+  findMissingMediaNameMatch(file) {
+    const state = this.editor.state.getState();
+    if (!state.mediaLibrary || state.mediaLibrary.length === 0) return null;
+    return state.mediaLibrary.find((media) => {
+      const isLoaded = this.editor.mediaFiles && this.editor.mediaFiles.has(media.id);
+      return !isLoaded && media.name === file.name;
+    }) || null;
   }
 
   /**
@@ -339,6 +452,18 @@ export class MediaManager {
 
     this.editor.updateStatus(`Relinking ${file.name}...`);
     const metadata = await this.getVideoMetadata(file);
+    const expectedMedia = this.editor.state.getState().mediaLibrary.find(media => media.id === mediaId);
+    const mismatch = expectedMedia
+      ? this.getDurationMismatch(expectedMedia.duration, metadata.duration)
+      : null;
+    if (expectedMedia && mismatch) {
+      const choice = await this.showDurationMismatch(expectedMedia, file, metadata);
+      if (choice !== 'use') {
+        this.editor.updateStatus(`Relink cancelled for ${expectedMedia.name}`);
+        e.target.value = '';
+        return;
+      }
+    }
 
     if (!this.editor.mediaFiles) this.editor.mediaFiles = new Map();
     this.editor.playbackCache.revokeObjectUrl(mediaId);

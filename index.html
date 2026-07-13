@@ -250,6 +250,36 @@
         </div>
     </div>
 
+    <!-- Media duration mismatch modal -->
+    <div id="mediaMismatchModal" class="modal" style="display:none;">
+        <div class="modal-content media-mismatch-modal" role="dialog" aria-modal="true"
+             aria-labelledby="mediaMismatchTitle" aria-describedby="mediaMismatchMessage">
+            <div class="modal-header">
+                <h3 id="mediaMismatchTitle">Media doesn’t match</h3>
+                <button class="close-btn" id="mediaMismatchCloseBtn" aria-label="Close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p id="mediaMismatchMessage" class="modal-message"></p>
+                <div class="media-mismatch-comparison">
+                    <div>
+                        <span>Saved source</span>
+                        <strong id="mediaMismatchExpected">—</strong>
+                    </div>
+                    <div>
+                        <span>Selected file</span>
+                        <strong id="mediaMismatchActual">—</strong>
+                    </div>
+                </div>
+                <p class="media-mismatch-note">Existing cuts may point past the end of this file or use different source moments.</p>
+                <div class="modal-actions media-mismatch-actions">
+                    <button id="mediaMismatchCancelBtn" class="btn btn-secondary">Cancel</button>
+                    <button id="mediaMismatchNewBtn" class="btn btn-secondary">Import as new</button>
+                    <button id="mediaMismatchUseBtn" class="btn btn-primary">Use anyway</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script type="module" src="src/main.js"></script>
 </body>
 </html>

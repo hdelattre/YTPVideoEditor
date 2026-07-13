@@ -702,6 +702,53 @@ input[type="range"]::-moz-range-thumb:hover {
   opacity: 1;
 }
 
+.media-mismatch-modal {
+  max-width: 500px;
+}
+
+.media-mismatch-comparison {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 16px 0 12px;
+}
+
+.media-mismatch-comparison > div {
+  padding: 12px;
+  background: var(--color-bg-deep);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.media-mismatch-comparison span {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--color-text-muted);
+  font-size: 9px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+
+.media-mismatch-comparison strong {
+  color: var(--color-text);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 13px;
+  font-weight: 550;
+  font-variant-numeric: tabular-nums;
+}
+
+.media-mismatch-note {
+  color: var(--color-warning);
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+
+.media-mismatch-actions {
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
 /* Refined editor components */
 .media-item {
   position: relative;
