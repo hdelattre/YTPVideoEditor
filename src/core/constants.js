@@ -4,8 +4,11 @@
 
 // Timeline layout constants
 export const TRACK_HEIGHT = 56; // pixels
+export const VIDEO_AUDIO_TRACK_HEIGHT = 84; // pixels
 export const RULER_HEIGHT = 28; // pixels
 export const TRACK_HEADER_WIDTH = 96; // pixels
+export const CLIP_HEADER_HEIGHT = 18; // pixels
+export const VIDEO_WAVEFORM_HEIGHT = 24; // pixels
 export const PIXELS_PER_SECOND_BASE = 100; // At zoom level 0
 export const MIN_CLIP_WIDTH = 10; // Minimum clip width in pixels
 export const PLAYHEAD_WIDTH = 2; // pixels
@@ -36,6 +39,7 @@ export const COLORS = {
   clipText: '#f7f8fa',
   playhead: '#ef7474',
   waveform: 'rgba(255, 255, 255, 0.32)',
+  waveformVideo: 'rgba(255, 255, 255, 0.72)',
   waveformBackground: 'rgba(255, 255, 255, 0.05)',
   rulerText: '#7f848e',
   rulerLine: '#3a3d45',

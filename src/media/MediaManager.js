@@ -4,6 +4,11 @@
 
 import * as actions from '../core/actions.js';
 import { createId } from '../utils/id.js';
+import { MediaVisualGenerator } from './MediaVisualGenerator.js';
+
+const MAX_CACHED_THUMBNAILS_PER_SOURCE = 256;
+const MAX_THUMBNAIL_REQUEST_BATCH = 24;
+const THUMBNAIL_TIME_QUANTUM_MS = 100;
 
 export class MediaManager {
   /**
@@ -11,6 +16,345 @@ export class MediaManager {
    */
   constructor(editor) {
     this.editor = editor;
+    this.visualGenerator = new MediaVisualGenerator();
+    this.analysisQueue = Promise.resolve();
+    this.analysisGeneration = 0;
+    this.analysisTokens = new Map();
+    this.thumbnailRequestStates = new Map();
+    this.thumbnailRefinementQueue = Promise.resolve();
+  }
+
+  /** Release any closable derived frames promptly instead of waiting for garbage collection. */
+  disposeMediaVisual(visual) {
+    const frames = visual && visual.thumbnails && visual.thumbnails.frames;
+    if (Array.isArray(frames)) {
+      frames.forEach((frame) => {
+        if (frame && typeof frame.close === 'function') frame.close();
+      });
+    }
+  }
+
+  /**
+   * Queue local visual generation without blocking import or running heavy decodes in parallel.
+   * @param {string} mediaId
+   * @param {File} file
+   * @param {{duration:number, hasAudio:boolean|null, hasVideo:boolean}} metadata
+   */
+  scheduleMediaVisualGeneration(mediaId, file, metadata) {
+    if (!this.editor.mediaVisuals) this.editor.mediaVisuals = new Map();
+    const fingerprint = `${file.name}:${file.size}:${file.lastModified || 0}:${metadata.duration || 0}`;
+    const existing = this.editor.mediaVisuals.get(mediaId);
+    if (existing && existing.fingerprint === fingerprint && existing.status === 'ready') return;
+    if (existing) this.disposeMediaVisual(existing);
+    this.thumbnailRequestStates.delete(mediaId);
+
+    const generation = this.analysisGeneration;
+    const token = Symbol(mediaId);
+    this.analysisTokens.set(mediaId, token);
+    this.editor.mediaVisuals.set(mediaId, {
+      fingerprint,
+      status: 'queued',
+      version: 0,
+      thumbnails: null,
+      waveform: null,
+    });
+
+    const publish = (updates) => {
+      if (generation !== this.analysisGeneration) return false;
+      if (this.analysisTokens.get(mediaId) !== token) return false;
+      const current = this.editor.mediaVisuals.get(mediaId) || { fingerprint };
+      const visualChanged = Object.prototype.hasOwnProperty.call(updates, 'thumbnails')
+        || Object.prototype.hasOwnProperty.call(updates, 'waveform');
+      this.editor.mediaVisuals.set(mediaId, {
+        ...current,
+        ...updates,
+        fingerprint,
+        version: (current.version || 0) + (visualChanged ? 1 : 0),
+      });
+      if (visualChanged && this.editor.timeline) {
+        this.editor.timeline.render(this.editor.state.getState());
+      }
+      return true;
+    };
+
+    const analyze = async () => {
+      if (!publish({ status: 'processing' })) return;
+      const isAudioFile = Boolean(file.type && file.type.startsWith('audio/'));
+      const shouldGenerateThumbnails = metadata.hasVideo && !isAudioFile;
+      // A video with confirmed or unknown audio gets a waveform attempt. Only a reliable
+      // negative signal skips decoding, avoiding false negatives on browsers without track APIs.
+      const shouldGenerateWaveform = isAudioFile || metadata.hasAudio !== false;
+
+      if (shouldGenerateThumbnails) {
+        try {
+          const thumbnails = await this.visualGenerator.generateThumbnails(
+            file,
+            metadata,
+            () => generation === this.analysisGeneration
+              && this.analysisTokens.get(mediaId) === token
+          );
+          if (thumbnails && !publish({ thumbnails })) {
+            this.disposeMediaVisual({ thumbnails });
+            return;
+          }
+        } catch (error) {
+          console.warn(`Could not generate thumbnails for ${file.name}:`, error);
+        }
+      }
+
+      if (generation !== this.analysisGeneration || this.analysisTokens.get(mediaId) !== token) {
+        return;
+      }
+
+      if (shouldGenerateWaveform) {
+        try {
+          const waveform = await this.visualGenerator.generateWaveform(file);
+          if (waveform && !publish({ waveform })) return;
+        } catch (error) {
+          // Some browsers cannot pass a video's audio track through decodeAudioData.
+          console.warn(`Could not generate waveform for ${file.name}:`, error);
+        }
+      }
+
+      publish({ status: 'ready' });
+    };
+
+    this.analysisQueue = this.analysisQueue
+      .catch(() => {})
+      .then(analyze);
+  }
+
+  /** Normalize nearby viewport requests so repeated renders share one capture. */
+  getThumbnailTimeKey(timeMs) {
+    return Math.round(timeMs / THUMBNAIL_TIME_QUANTUM_MS) * THUMBNAIL_TIME_QUANTUM_MS;
+  }
+
+  /** Preserve exact captured positions independently from request deduplication buckets. */
+  getThumbnailCacheKey(timeMs) {
+    return String(Math.round(timeMs * 1000) / 1000);
+  }
+
+  /** Create per-source refinement bookkeeping without reopening a decoder. */
+  getThumbnailRequestState(mediaId, visual, thumbnails) {
+    let requestState = this.thumbnailRequestStates.get(mediaId);
+    if (requestState && requestState.fingerprint === visual.fingerprint) return requestState;
+
+    requestState = {
+      fingerprint: visual.fingerprint,
+      desired: new Map(),
+      pending: new Map(),
+      failedKeys: new Set(),
+      cacheOrder: (thumbnails.sampleTimesMs || []).map(
+        timeMs => this.getThumbnailCacheKey(timeMs)
+      ),
+      revision: 0,
+      processing: false,
+    };
+    this.thumbnailRequestStates.set(mediaId, requestState);
+    return requestState;
+  }
+
+  /**
+   * Replace queued refinement work with the latest complete viewport request set.
+   * Duplicate cuts share one set, and superseded zoom/scroll positions are discarded.
+   * @param {Map<string, number[]>} requestsByMedia
+   */
+  updateVisibleThumbnailRequests(requestsByMedia) {
+    const visibleRequests = requestsByMedia instanceof Map ? requestsByMedia : new Map();
+
+    this.thumbnailRequestStates.forEach((requestState, mediaId) => {
+      if (visibleRequests.has(mediaId) || requestState.desired.size === 0) return;
+      requestState.revision += 1;
+      requestState.desired = new Map();
+      requestState.pending = new Map();
+    });
+
+    visibleRequests.forEach((timesMs, mediaId) => {
+      if (!Array.isArray(timesMs)) return;
+      const visual = this.editor.mediaVisuals && this.editor.mediaVisuals.get(mediaId);
+      const thumbnails = visual && visual.thumbnails;
+      const file = this.editor.mediaFiles && this.editor.mediaFiles.get(mediaId);
+      if (!thumbnails || !file) return;
+
+      const requestState = this.getThumbnailRequestState(mediaId, visual, thumbnails);
+      const durationMs = Math.max(0, Number(thumbnails.durationMs) || 0);
+      const cachedTimes = Array.isArray(thumbnails.sampleTimesMs)
+        ? thumbnails.sampleTimesMs
+        : [];
+      const desired = new Map();
+      timesMs.forEach((requestedTimeMs) => {
+        if (!Number.isFinite(requestedTimeMs)) return;
+        const timeMs = Math.max(0, Math.min(durationMs, requestedTimeMs));
+        const key = this.getThumbnailTimeKey(timeMs);
+        if (desired.has(key)
+            || requestState.failedKeys.has(key)
+            || cachedTimes.some(
+              cachedTime => Math.abs(cachedTime - timeMs) <= THUMBNAIL_TIME_QUANTUM_MS
+            )) return;
+        desired.set(key, timeMs);
+      });
+
+      let requestsChanged = desired.size !== requestState.desired.size;
+      if (!requestsChanged) {
+        for (const key of desired.keys()) {
+          if (!requestState.desired.has(key)) {
+            requestsChanged = true;
+            break;
+          }
+        }
+      }
+      if (requestsChanged) {
+        requestState.revision += 1;
+        requestState.desired = desired;
+        requestState.pending = new Map(desired);
+      }
+
+      if (requestState.pending.size > 0 && !requestState.processing) {
+        this.enqueueThumbnailRequestProcessing(mediaId, requestState);
+      }
+    });
+  }
+
+  /** Run only one viewport-refinement decoder at a time across all sources. */
+  enqueueThumbnailRequestProcessing(mediaId, requestState) {
+    if (requestState.processing) return;
+    requestState.processing = true;
+    this.thumbnailRefinementQueue = this.thumbnailRefinementQueue
+      .catch(() => {})
+      .then(() => this.processThumbnailRequests(mediaId, requestState));
+  }
+
+  /** Capture pending visible timestamps through one reusable decoder session. */
+  async processThumbnailRequests(mediaId, requestState) {
+    const generation = this.analysisGeneration;
+    const file = this.editor.mediaFiles && this.editor.mediaFiles.get(mediaId);
+    const media = this.editor.state.getState().mediaLibrary.find(item => item.id === mediaId);
+    let session = null;
+    let currentBatch = [];
+
+    try {
+      if (!file || !media || requestState.pending.size === 0) {
+        requestState.pending.clear();
+        return;
+      }
+      session = await this.visualGenerator.createThumbnailSession(file, {
+        duration: media.duration,
+      });
+      if (!session) {
+        requestState.desired.forEach((_, key) => requestState.failedKeys.add(key));
+        requestState.desired.clear();
+        requestState.pending.clear();
+        return;
+      }
+
+      while (requestState.pending.size > 0) {
+        if (generation !== this.analysisGeneration
+            || this.thumbnailRequestStates.get(mediaId) !== requestState) break;
+        const batchRevision = requestState.revision;
+        currentBatch = Array.from(requestState.pending.entries())
+          .slice(0, MAX_THUMBNAIL_REQUEST_BATCH);
+        currentBatch.forEach(([key]) => requestState.pending.delete(key));
+        const result = await session.captureTimes(
+          currentBatch.map(([, timeMs]) => timeMs),
+          () => generation === this.analysisGeneration
+            && this.thumbnailRequestStates.get(mediaId) === requestState
+            && requestState.revision === batchRevision
+        );
+        if (generation !== this.analysisGeneration
+            || this.thumbnailRequestStates.get(mediaId) !== requestState) {
+          this.disposeMediaVisual({ thumbnails: result });
+          break;
+        }
+        if (Array.isArray(result.failedTimesMs)) {
+          result.failedTimesMs.forEach((timeMs) => {
+            requestState.failedKeys.add(this.getThumbnailTimeKey(timeMs));
+          });
+        }
+        this.mergeThumbnailFrames(mediaId, result, requestState);
+        currentBatch = [];
+      }
+    } catch (error) {
+      currentBatch.forEach(([key]) => requestState.failedKeys.add(key));
+      requestState.desired.clear();
+      requestState.pending.clear();
+      console.warn(`Could not refine thumbnails for ${media ? media.name : mediaId}:`, error);
+    } finally {
+      if (session) session.close();
+      requestState.processing = false;
+      if (generation === this.analysisGeneration
+          && this.thumbnailRequestStates.get(mediaId) === requestState
+          && requestState.pending.size > 0) {
+        this.enqueueThumbnailRequestProcessing(mediaId, requestState);
+      }
+    }
+  }
+
+  /** Merge newly captured timestamps and evict the oldest cached frames over the cap. */
+  mergeThumbnailFrames(mediaId, result, requestState) {
+    if (!result || !result.frames || result.frames.length === 0) return;
+    const visual = this.editor.mediaVisuals.get(mediaId);
+    if (!visual || !visual.thumbnails) {
+      this.disposeMediaVisual({ thumbnails: result });
+      return;
+    }
+
+    const thumbnails = visual.thumbnails;
+    const samples = new Map();
+    thumbnails.sampleTimesMs.forEach((timeMs, index) => {
+      samples.set(this.getThumbnailCacheKey(timeMs), {
+        timeMs,
+        frame: thumbnails.frames[index],
+      });
+    });
+
+    result.sampleTimesMs.forEach((timeMs, index) => {
+      const key = this.getThumbnailCacheKey(timeMs);
+      if (samples.has(key)) {
+        const duplicate = result.frames[index];
+        if (duplicate && typeof duplicate.close === 'function') duplicate.close();
+        return;
+      }
+      samples.set(key, { timeMs, frame: result.frames[index] });
+      requestState.cacheOrder.push(key);
+    });
+
+    while (samples.size > MAX_CACHED_THUMBNAILS_PER_SOURCE
+        && requestState.cacheOrder.length > 0) {
+      const oldestKey = requestState.cacheOrder.shift();
+      const evicted = samples.get(oldestKey);
+      if (!evicted) continue;
+      if (evicted.frame && typeof evicted.frame.close === 'function') evicted.frame.close();
+      samples.delete(oldestKey);
+    }
+
+    const sortedSamples = Array.from(samples.values()).sort((a, b) => a.timeMs - b.timeMs);
+    this.editor.mediaVisuals.set(mediaId, {
+      ...visual,
+      version: (visual.version || 0) + 1,
+      thumbnails: {
+        ...thumbnails,
+        frames: sortedSamples.map(sample => sample.frame),
+        sampleTimesMs: sortedSamples.map(sample => sample.timeMs),
+      },
+    });
+    if (this.editor.timeline) {
+      this.editor.timeline.render(this.editor.state.getState());
+    }
+  }
+
+  /** Cancel queued analysis and release session-only derived visuals. */
+  clearMediaVisuals() {
+    this.analysisGeneration += 1;
+    this.analysisTokens.clear();
+    this.thumbnailRequestStates.clear();
+    this.analysisQueue = Promise.resolve();
+    if (this.editor.mediaVisuals) {
+      this.editor.mediaVisuals.forEach(visual => this.disposeMediaVisual(visual));
+      this.editor.mediaVisuals.clear();
+    }
+    if (this.editor.timeline) {
+      this.editor.timeline.render(this.editor.state.getState());
+    }
   }
 
   /**
@@ -148,6 +492,7 @@ export class MediaManager {
           width: metadata.width,
           height: metadata.height,
         }));
+        this.scheduleMediaVisualGeneration(mediaId, file, metadata);
         this.editor.updateStatus(`Relinked ${file.name}`);
       } else {
         const existingMatch = this.findExistingMediaMatch(file, metadata);
@@ -175,6 +520,7 @@ export class MediaManager {
           width: metadata.width,
           height: metadata.height,
         }));
+        this.scheduleMediaVisualGeneration(mediaId, file, metadata);
 
         this.editor.updateStatus(`Loaded ${file.name}`);
       }
@@ -486,6 +832,7 @@ export class MediaManager {
       width: metadata.width,
       height: metadata.height,
     }));
+    this.scheduleMediaVisualGeneration(mediaId, file, metadata);
 
     this.editor.updateStatus(`Relinked ${file.name}`);
     e.target.value = '';

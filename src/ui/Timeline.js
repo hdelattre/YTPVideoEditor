@@ -6,8 +6,11 @@
 import { Canvas2DRenderer } from '../rendering/Canvas2DRenderer.js';
 import {
   TRACK_HEIGHT,
+  VIDEO_AUDIO_TRACK_HEIGHT,
   RULER_HEIGHT,
   TRACK_HEADER_WIDTH,
+  CLIP_HEADER_HEIGHT,
+  VIDEO_WAVEFORM_HEIGHT,
   MIN_CLIP_WIDTH,
   PLAYHEAD_WIDTH,
   COLORS,
@@ -25,16 +28,23 @@ export class Timeline {
   /**
    * @param {HTMLElement} containerEl
    * @param {import('../core/state.js').StateManager} stateManager
-   * @param {{scrollEl?: HTMLInputElement|null}} [options]
+   * @param {{scrollEl?: HTMLInputElement|null, mediaVisuals?: Map<string, object>, mediaInfo?: Map<string, object>, updateThumbnailRequests?: function(Map<string, number[]>):void}} [options]
    */
   constructor(containerEl, stateManager, options = {}) {
     this.container = containerEl;
     this.state = stateManager;
     this.scrollEl = options && options.scrollEl ? options.scrollEl : null;
+    this.mediaVisuals = options && options.mediaVisuals ? options.mediaVisuals : new Map();
+    this.mediaInfo = options && options.mediaInfo ? options.mediaInfo : new Map();
+    this.updateThumbnailRequests = options && options.updateThumbnailRequests
+      ? options.updateThumbnailRequests
+      : null;
 
     // Create canvas
     this.canvas = document.createElement('canvas');
     this.canvas.id = 'timeline-canvas';
+    this.staticLayer = document.createElement('canvas');
+    this.staticRenderSignature = null;
     this.trackHeaders = document.createElement('div');
     this.trackHeaders.className = 'timeline-track-headers';
     this.trackHeaders.setAttribute('aria-label', 'Timeline tracks');
@@ -206,7 +216,7 @@ export class Timeline {
     const trackHeaderWidth = this.getTrackHeaderWidth();
     const contentHeight = Math.max(
       viewportHeight,
-      RULER_HEIGHT + state.tracks.length * TRACK_HEIGHT
+      this.getTimelineHeight(state)
     );
     this.renderer.resize(Math.max(1, viewportWidth - trackHeaderWidth), contentHeight);
     if (this.trackHeaders) {
@@ -225,13 +235,61 @@ export class Timeline {
     return Number.isFinite(parsed) && parsed > 0 ? parsed : TRACK_HEADER_WIDTH;
   }
 
+  /** Return whether a clip needs distinct video and audio rails. */
+  clipHasVideoWithAudio(clip) {
+    const visual = this.mediaVisuals.get(clip.mediaId);
+    if (visual && visual.thumbnails && visual.waveform) return true;
+    const info = this.mediaInfo.get(clip.mediaId);
+    return Boolean(info && info.hasVideo === true && info.hasAudio === true);
+  }
+
+  /**
+   * Calculate variable track rows once for layout and hit testing.
+   * @param {import('../core/types.js').EditorState} state
+   * @returns {{track: import('../core/types.js').Track, index: number, y: number, height: number}[]}
+   */
+  getTrackLayout(state) {
+    const expandedTrackIds = new Set();
+    state.clips.forEach((clip) => {
+      if (this.clipHasVideoWithAudio(clip)) expandedTrackIds.add(clip.trackId);
+    });
+    let y = RULER_HEIGHT;
+    return state.tracks.map((track, index) => {
+      const height = expandedTrackIds.has(track.id) ? VIDEO_AUDIO_TRACK_HEIGHT : TRACK_HEIGHT;
+      const row = { track, index, y, height };
+      y += height;
+      return row;
+    });
+  }
+
+  /** @returns {number} Total ruler and track content height. */
+  getTimelineHeight(state, trackLayout = this.getTrackLayout(state)) {
+    return trackLayout
+      .reduce((height, row) => height + row.height, RULER_HEIGHT);
+  }
+
+  /**
+   * Resolve a canvas y-coordinate to a variable-height track row.
+   * @returns {number} Track index, or -1 above the tracks / track count below them.
+   */
+  getTrackIndexAtY(y, state) {
+    if (y < RULER_HEIGHT) return -1;
+    const layout = this.getTrackLayout(state);
+    const row = layout.find(item => y < item.y + item.height);
+    return row ? row.index : state.tracks.length;
+  }
+
   /**
    * Scroll a track row into view.
    * @param {number} trackIndex
    */
   scrollToTrack(trackIndex) {
-    const rowTop = RULER_HEIGHT + Math.max(0, trackIndex) * TRACK_HEIGHT;
-    const rowBottom = rowTop + TRACK_HEIGHT;
+    const state = this.state.getState();
+    const layout = this.getTrackLayout(state);
+    const row = layout[Math.max(0, Math.min(layout.length - 1, trackIndex))];
+    if (!row) return;
+    const rowTop = row.y;
+    const rowBottom = row.y + row.height;
     const viewTop = this.container.scrollTop;
     const viewBottom = viewTop + this.container.clientHeight;
     if (rowTop < viewTop) {
@@ -307,10 +365,12 @@ export class Timeline {
    * @param {import('../core/types.js').EditorState} state
    */
   render(state) {
+    const trackLayout = this.getTrackLayout(state);
+    const timelineHeight = this.getTimelineHeight(state, trackLayout);
     const requiredWidth = Math.max(1, this.container.clientWidth - this.getTrackHeaderWidth());
     const requiredHeight = Math.max(
       this.container.clientHeight,
-      RULER_HEIGHT + state.tracks.length * TRACK_HEIGHT
+      timelineHeight
     );
     if (
       Math.abs(this.renderer.width - requiredWidth) > 0.5
@@ -321,12 +381,10 @@ export class Timeline {
         this.trackHeaders.style.height = `${requiredHeight}px`;
       }
     }
-    this.renderer.clear();
-    this.renderTrackHeaders(state);
+    this.renderTrackHeaders(state, trackLayout);
 
     const visibleWidth = this.renderer.width;
     const visibleHeight = this.renderer.height;
-    const timelineHeight = state.tracks.length * TRACK_HEIGHT + RULER_HEIGHT;
 
     if (this.lastZoom !== state.zoom) {
       if (this.zoomAnchor && this.zoomAnchor.type === 'mouse') {
@@ -366,10 +424,28 @@ export class Timeline {
     const endTime = pixelsToTime(this.scrollX + visibleWidth, state.zoom);
     const pixelsPerMs = Math.pow(2, state.zoom) * (100 / 1000); // pixels per millisecond
 
+    const staticSignature = this.getStaticRenderSignature(
+      state,
+      visibleWidth,
+      visibleHeight,
+      trackLayout
+    );
+    if (!this.dragState
+        && staticSignature === this.staticRenderSignature
+        && this.restoreStaticLayer()) {
+      const cachedPlayheadX = timeToPixels(state.playhead, state.zoom) - this.scrollX;
+      if (cachedPlayheadX >= 0 && cachedPlayheadX <= visibleWidth) {
+        this.renderer.drawPlayhead(cachedPlayheadX, timelineHeight, COLORS.playhead);
+      }
+      this.syncScrollbar(maxScroll);
+      return;
+    }
+
+    this.renderer.clear();
+
     // Draw tracks
-    state.tracks.forEach((track, index) => {
-      const y = RULER_HEIGHT + index * TRACK_HEIGHT;
-      this.renderer.drawTrackBackground(y, visibleWidth, TRACK_HEIGHT, index % 2 === 1);
+    trackLayout.forEach((row) => {
+      this.renderer.drawTrackBackground(row.y, visibleWidth, row.height, row.index % 2 === 1);
     });
 
     // Draw a restrained time grid behind clips, then the ruler above it.
@@ -384,9 +460,11 @@ export class Timeline {
 
     // Draw clips
     const visibleClips = this.getVisibleClips(state, startTime, endTime);
+    const thumbnailRequests = new Map();
     visibleClips.forEach(clip => {
-      this.drawClip(clip, state);
+      this.drawClip(clip, state, trackLayout, thumbnailRequests);
     });
+    if (this.updateThumbnailRequests) this.updateThumbnailRequests(thumbnailRequests);
 
     // Draw selection rectangle
     if (this.dragState && this.dragState.type === 'select' && this.dragState.didMove) {
@@ -394,6 +472,12 @@ export class Timeline {
       if (rect && rect.width > 0 && rect.height > 0) {
         this.renderer.drawSelectionRect(rect.x, rect.y, rect.width, rect.height);
       }
+    }
+
+    if (!this.dragState && this.captureStaticLayer()) {
+      this.staticRenderSignature = staticSignature;
+    } else {
+      this.staticRenderSignature = null;
     }
 
     // Draw playhead
@@ -406,13 +490,101 @@ export class Timeline {
   }
 
   /**
+   * Signature for everything drawn below the moving playhead.
+   * Playback ticks only change playhead, so a matching signature can reuse one canvas snapshot.
+   */
+  getStaticRenderSignature(state, visibleWidth, visibleHeight, layout = this.getTrackLayout(state)) {
+    const tracks = layout.map(({ track, height }) => [
+      track.id,
+      track.name,
+      track.visible !== false,
+      Boolean(track.muted),
+      Boolean(track.locked),
+      height,
+    ]);
+    const clips = state.clips.map(clip => [
+      clip.id,
+      clip.mediaId,
+      clip.trackId,
+      clip.name,
+      clip.start,
+      clip.duration,
+      clip.trimStart || 0,
+      clip.speed || 1,
+      Boolean(clip.reversed),
+      clip.color || '',
+    ]);
+    const selected = Array.isArray(state.selectedClipIds)
+      ? state.selectedClipIds
+      : (state.selectedClipId ? [state.selectedClipId] : []);
+    const visualVersions = [];
+    const mediaIds = new Set(state.clips.map(clip => clip.mediaId));
+    mediaIds.forEach((mediaId) => {
+      const visual = this.mediaVisuals.get(mediaId);
+      visualVersions.push([mediaId, visual ? visual.version || 0 : 0]);
+    });
+
+    return JSON.stringify([
+      visibleWidth,
+      visibleHeight,
+      state.zoom,
+      Math.round(this.scrollX * 1000) / 1000,
+      tracks,
+      clips,
+      selected,
+      state.selectedClipId,
+      visualVersions,
+    ]);
+  }
+
+  /** Cache the fully rendered timeline without its playhead. */
+  captureStaticLayer() {
+    const source = this.renderer.canvas;
+    const pixelCount = source.width * source.height;
+    // Avoid doubling memory for unusually tall timelines or very high-DPI canvases.
+    if (!source.width || !source.height || pixelCount > 8_000_000) {
+      this.staticLayer.width = 0;
+      this.staticLayer.height = 0;
+      return false;
+    }
+    if (this.staticLayer.width !== source.width || this.staticLayer.height !== source.height) {
+      this.staticLayer.width = source.width;
+      this.staticLayer.height = source.height;
+    }
+    const ctx = this.staticLayer.getContext('2d', { alpha: false });
+    if (!ctx) return false;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, this.staticLayer.width, this.staticLayer.height);
+    ctx.drawImage(source, 0, 0);
+    return true;
+  }
+
+  /** Restore a cached timeline snapshot in one physical-pixel canvas copy. */
+  restoreStaticLayer() {
+    const target = this.renderer.canvas;
+    if (!this.staticLayer.width
+        || this.staticLayer.width !== target.width
+        || this.staticLayer.height !== target.height) {
+      return false;
+    }
+    const ctx = this.renderer.ctx;
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(this.staticLayer, 0, 0);
+    ctx.restore();
+    return true;
+  }
+
+  /**
    * Render fixed track identity and state controls beside the canvas.
    * @param {import('../core/types.js').EditorState} state
+   * @param {{track: import('../core/types.js').Track, index: number, y: number, height: number}[]} [layout]
    */
-  renderTrackHeaders(state) {
+  renderTrackHeaders(state, layout) {
     if (!this.trackHeaders) return;
-    const signature = state.tracks
-      .map(track => `${track.id}:${track.name}:${track.visible}:${track.muted}:${track.locked}`)
+    const trackLayout = layout || this.getTrackLayout(state);
+    const signature = trackLayout
+      .map(({ track, height }) => `${track.id}:${track.name}:${track.visible}:${track.muted}:${track.locked}:${height}`)
       .join('|');
     if (signature === this.lastTrackHeaderSignature) return;
     this.lastTrackHeaderSignature = signature;
@@ -423,9 +595,10 @@ export class Timeline {
     ruler.textContent = 'Tracks';
     this.trackHeaders.appendChild(ruler);
 
-    state.tracks.forEach((track, index) => {
+    trackLayout.forEach(({ track, index, height }) => {
       const row = document.createElement('div');
       row.className = `timeline-track-header${track.visible === false ? ' is-hidden' : ''}${track.locked ? ' is-locked' : ''}`;
+      row.style.height = `${height}px`;
       if (state.tracks.length > 1) {
         this.setupTrackLongPress(row, track);
       }
@@ -579,7 +752,7 @@ export class Timeline {
     const x2 = Math.max(startX, currentX);
     const y1 = Math.min(startY, currentY);
     const y2 = Math.max(startY, currentY);
-    const maxY = RULER_HEIGHT + state.tracks.length * TRACK_HEIGHT;
+    const maxY = this.getTimelineHeight(state);
     const top = Math.max(RULER_HEIGHT, y1);
     const bottom = Math.min(maxY, y2);
     const width = Math.max(0, x2 - x1);
@@ -596,14 +769,17 @@ export class Timeline {
   getClipsInRect(state, rect) {
     if (!rect || rect.width <= 0 || rect.height <= 0) return [];
     const ids = [];
+    const trackLayout = this.getTrackLayout(state);
     state.clips.forEach((clip) => {
       const track = state.tracks.find(t => t.id === clip.trackId);
       if (!track || !track.visible || track.locked) return;
       const trackIndex = state.tracks.indexOf(track);
+      const row = trackLayout[trackIndex];
+      if (!row) return;
       const x = timeToPixels(clip.start, state.zoom) - this.scrollX;
-      const y = RULER_HEIGHT + trackIndex * TRACK_HEIGHT + 2;
+      const y = row.y + 2;
       const width = Math.max(MIN_CLIP_WIDTH, timeToPixels(clip.duration, state.zoom));
-      const height = TRACK_HEIGHT - 4;
+      const height = row.height - 4;
       const intersects = x < rect.x + rect.width &&
         x + width > rect.x &&
         y < rect.y + rect.height &&
@@ -619,16 +795,20 @@ export class Timeline {
    * Draw a single clip
    * @param {import('../core/types.js').Clip} clip
    * @param {import('../core/types.js').EditorState} state
+   * @param {{track: import('../core/types.js').Track, index: number, y: number, height: number}[]} [layout]
+   * @param {Map<string, number[]>} [thumbnailRequests]
    */
-  drawClip(clip, state) {
+  drawClip(clip, state, layout, thumbnailRequests) {
     const track = state.tracks.find(t => t.id === clip.trackId);
     if (!track || !track.visible) return;
 
     const trackIndex = state.tracks.indexOf(track);
+    const row = (layout || this.getTrackLayout(state))[trackIndex];
+    if (!row) return;
     const x = timeToPixels(clip.start, state.zoom) - this.scrollX;
-    const y = RULER_HEIGHT + trackIndex * TRACK_HEIGHT + 2;
+    const y = row.y + 2;
     const width = Math.max(MIN_CLIP_WIDTH, timeToPixels(clip.duration, state.zoom));
-    const height = TRACK_HEIGHT - 4;
+    const height = row.height - 4;
 
     const selectedIds = Array.isArray(state.selectedClipIds) ? state.selectedClipIds : [];
     const selected = selectedIds.includes(clip.id) || clip.id === state.selectedClipId;
@@ -636,14 +816,74 @@ export class Timeline {
     // Draw clip
     this.renderer.drawClip(clip, x, y, width, height, selected);
 
-    // Draw waveform if available
-    if (clip.waveformData) {
+    const visual = this.mediaVisuals.get(clip.mediaId);
+    const contentY = y + CLIP_HEADER_HEIGHT;
+    const contentHeight = Math.max(0, height - CLIP_HEADER_HEIGHT - 2);
+    const visualOptions = {
+      trimStart: clip.trimStart || 0,
+      speed: clip.speed || 1,
+      reversed: Boolean(clip.reversed),
+      clipDuration: clip.duration,
+      contentInset: 2,
+      viewportLeft: 0,
+      viewportRight: this.renderer.width,
+    };
+
+    const hasThumbnails = Boolean(visual && visual.thumbnails);
+    const hasWaveform = Boolean(visual && visual.waveform);
+    const hasVideoWaveform = hasThumbnails && hasWaveform;
+    const videoWaveformHeight = hasVideoWaveform
+      ? Math.min(VIDEO_WAVEFORM_HEIGHT, Math.max(18, contentHeight * 0.4))
+      : 0;
+    const thumbnailHeight = contentHeight;
+
+    if (hasThumbnails && thumbnailHeight > 0) {
+      const requestedTimes = this.renderer.drawThumbnailStrip(
+        visual.thumbnails,
+        x,
+        contentY,
+        width,
+        thumbnailHeight,
+        visualOptions
+      );
+      if (requestedTimes.length > 0 && thumbnailRequests) {
+        const existingRequests = thumbnailRequests.get(clip.mediaId);
+        if (existingRequests) {
+          existingRequests.push(...requestedTimes);
+        } else {
+          thumbnailRequests.set(clip.mediaId, requestedTimes);
+        }
+      }
+    }
+
+    if (hasWaveform && contentHeight > 0) {
+      const waveformHeight = hasThumbnails
+        ? videoWaveformHeight
+        : Math.max(1, contentHeight - 4);
+      const waveformY = hasThumbnails
+        ? contentY + contentHeight - videoWaveformHeight
+        : contentY + 2;
+      this.renderer.drawWaveformPeaks(
+        visual.waveform,
+        x,
+        waveformY,
+        width,
+        waveformHeight,
+        hasThumbnails ? COLORS.waveformVideo : COLORS.waveform,
+        hasThumbnails
+          ? { ...visualOptions, backgroundColor: 'rgba(6, 8, 11, 0.34)' }
+          : visualOptions
+      );
+    }
+
+    // Backward compatibility for projects that stored clip-level waveform samples.
+    if ((!visual || !visual.waveform) && clip.waveformData) {
       this.renderer.drawWaveform(
         clip.waveformData,
         x + 4,
-        y + 4,
+        contentY + 2,
         width - 8,
-        height - 8,
+        Math.max(1, contentHeight - 4),
         COLORS.waveform
       );
     }
@@ -823,7 +1063,7 @@ export class Timeline {
 
     } else if (this.dragState.type === 'move') {
       // Move selected clips
-      const trackIndex = Math.floor((y - RULER_HEIGHT) / TRACK_HEIGHT);
+      const trackIndex = this.getTrackIndexAtY(y, state);
       const newTrackId = Math.max(0, Math.min(state.tracks.length - 1, trackIndex));
       const deltaTrack = newTrackId - this.dragState.originalTrackId;
 
@@ -1138,7 +1378,7 @@ export class Timeline {
   getClipAtPoint(x, y, state, options = {}) {
     if (y < RULER_HEIGHT) return null;
 
-    const trackIndex = Math.floor((y - RULER_HEIGHT) / TRACK_HEIGHT);
+    const trackIndex = this.getTrackIndexAtY(y, state);
     if (trackIndex < 0 || trackIndex >= state.tracks.length) return null;
 
     const track = state.tracks[trackIndex];
@@ -1349,7 +1589,7 @@ export class Timeline {
 
     // Calculate drop position
     const time = pixelsToTime(x + this.scrollX, state.zoom);
-    const trackIndex = Math.floor((y - RULER_HEIGHT) / TRACK_HEIGHT);
+    const trackIndex = this.getTrackIndexAtY(y, state);
     const clampedTrackIndex = Math.max(0, Math.min(state.tracks.length - 1, trackIndex));
     const targetTrack = state.tracks[clampedTrackIndex];
     if (!targetTrack || targetTrack.locked || targetTrack.visible === false) return;

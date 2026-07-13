@@ -30,6 +30,7 @@ class YTPEditor {
     this.isPlayheadUpdateFromPlayback = false;
     this.lastPlayhead = 0;
     this.mediaInfo = new Map();
+    this.mediaVisuals = new Map();
     this.lastPreviewVideoClipId = null;
     this.lastPreviewAudioClipId = null;
     this.lastPreviewAudioMediaId = null;
@@ -87,7 +88,14 @@ class YTPEditor {
     // Initialize timeline
     const timelineContainer = document.getElementById('timelineContainer');
     const timelineScroll = document.getElementById('timelineScroll');
-    this.timeline = new Timeline(timelineContainer, this.state, { scrollEl: timelineScroll });
+    this.timeline = new Timeline(timelineContainer, this.state, {
+      scrollEl: timelineScroll,
+      mediaVisuals: this.mediaVisuals,
+      mediaInfo: this.mediaInfo,
+      updateThumbnailRequests: (requestsByMedia) => {
+        if (this.mediaManager) this.mediaManager.updateVisibleThumbnailRequests(requestsByMedia);
+      },
+    });
 
     // Initialize preview canvas
     this.previewCanvas = document.getElementById('previewCanvas');
@@ -942,6 +950,11 @@ class YTPEditor {
    * Clear media caches and video elements
    */
   clearMediaCaches() {
+    if (this.mediaManager) {
+      this.mediaManager.clearMediaVisuals();
+    } else if (this.mediaVisuals) {
+      this.mediaVisuals.clear();
+    }
     if (this.mediaFiles) {
       this.mediaFiles.clear();
     }

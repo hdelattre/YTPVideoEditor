@@ -3,7 +3,12 @@
  */
 
 import { Renderer } from './Renderer.js';
-import { COLORS } from '../core/constants.js';
+import { CLIP_HEADER_HEIGHT, COLORS } from '../core/constants.js';
+
+const WAVEFORM_VERTICAL_GAIN = 1.5;
+const WAVEFORM_MAX_AMPLITUDE = 0.98;
+const MAX_WAVEFORM_BUCKETS_PER_PIXEL = 4;
+const MIN_THUMBNAIL_REFINEMENT_WIDTH = 32;
 
 /**
  * Canvas2D implementation of the Renderer interface
@@ -54,7 +59,7 @@ export class Canvas2DRenderer extends Renderer {
     // A dark lower layer keeps waveform and metadata legible on custom colors.
     ctx.globalAlpha = 0.13;
     ctx.fillStyle = '#000000';
-    ctx.fillRect(x, y + 26, width, Math.max(0, height - 26));
+    ctx.fillRect(x, y + CLIP_HEADER_HEIGHT, width, Math.max(0, height - CLIP_HEADER_HEIGHT));
     ctx.restore();
 
     ctx.save();
@@ -87,23 +92,27 @@ export class Canvas2DRenderer extends Renderer {
     ctx.rect(x + 3, y + 3, Math.max(0, width - 6), Math.max(0, height - 6));
     ctx.clip();
     ctx.fillStyle = COLORS.clipText;
-    ctx.font = '600 11px Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    ctx.font = '600 10px Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
     ctx.textBaseline = 'top';
     ctx.shadowColor = 'rgba(0, 0, 0, 0.42)';
     ctx.shadowBlur = 2;
-    ctx.fillText(clip.name, x + 7, y + 7);
+    ctx.fillText(clip.name, x + 6, y + 4);
     ctx.shadowBlur = 0;
+
+    let metadataRight = x + width - 6;
+    if (clip.reversed) {
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+      ctx.font = '9px sans-serif';
+      ctx.textAlign = 'right';
+      ctx.fillText('◀', metadataRight, y + 4);
+      metadataRight -= 16;
+    }
 
     if (clip.speed && clip.speed !== 1.0) {
       ctx.fillStyle = 'rgba(255, 255, 255, 0.78)';
       ctx.font = '500 9px "SFMono-Regular", Consolas, monospace';
-      ctx.fillText(`${clip.speed}×`, x + 7, y + 30);
-    }
-
-    if (clip.reversed) {
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
-      ctx.font = '10px sans-serif';
-      ctx.fillText('◀', x + width - 18, y + 7);
+      ctx.textAlign = 'right';
+      ctx.fillText(`${clip.speed}×`, metadataRight, y + 4);
     }
 
     ctx.restore();
@@ -157,8 +166,10 @@ export class Canvas2DRenderer extends Renderer {
         if (datum > max) max = datum;
       }
 
-      const yMin = centerY + amp * min;
-      const yMax = centerY + amp * max;
+      const displayMin = Math.max(-WAVEFORM_MAX_AMPLITUDE, min * WAVEFORM_VERTICAL_GAIN);
+      const displayMax = Math.min(WAVEFORM_MAX_AMPLITUDE, max * WAVEFORM_VERTICAL_GAIN);
+      const yMin = centerY + amp * displayMin;
+      const yMax = centerY + amp * displayMax;
 
       // Draw vertical line from min to max
       ctx.moveTo(x + i, yMin);
@@ -169,42 +180,210 @@ export class Canvas2DRenderer extends Renderer {
   }
 
   /**
-   * Draw video thumbnail
-   * @param {ImageBitmap|VideoFrame|HTMLVideoElement} frame
-   * @param {number} x
+   * Draw downsampled source peaks, mapping trim, speed, and reverse to timeline pixels.
+   * @param {{peaks:Float32Array|Int16Array,bucketCount:number,durationMs:number,peakScale?:number,levels?:{peaks:Float32Array|Int16Array,bucketCount:number}[]}} waveform
+   * @param {number} clipX
    * @param {number} y
-   * @param {number} width
+   * @param {number} clipWidth
    * @param {number} height
+   * @param {string} color
+   * @param {{trimStart?:number,speed?:number,reversed?:boolean,viewportLeft?:number,viewportRight?:number,contentInset?:number,backgroundColor?:string}} [options]
    */
-  drawThumbnail(frame, x, y, width, height) {
-    if (!frame) return;
+  drawWaveformPeaks(waveform, clipX, y, clipWidth, height, color = COLORS.waveform, options = {}) {
+    if (!waveform || !waveform.peaks || waveform.peaks.length < 2) return;
+    if (!Number.isFinite(clipWidth) || clipWidth <= 0 || height <= 0) return;
 
-    this.ctx.save();
-
-    // Clip to bounds
-    this.ctx.beginPath();
-    this.ctx.rect(x, y, width, height);
-    this.ctx.clip();
-
-    // Calculate aspect ratio fit
-    const frameWidth = frame.width || frame.videoWidth;
-    const frameHeight = frame.height || frame.videoHeight;
-    const scale = Math.min(width / frameWidth, height / frameHeight);
-    const scaledWidth = frameWidth * scale;
-    const scaledHeight = frameHeight * scale;
-    const offsetX = (width - scaledWidth) / 2;
-    const offsetY = (height - scaledHeight) / 2;
-
-    // Draw centered and scaled
-    this.ctx.drawImage(
-      frame,
-      x + offsetX,
-      y + offsetY,
-      scaledWidth,
-      scaledHeight
+    let peaks = waveform.peaks;
+    let bucketCount = Math.min(
+      Number(waveform.bucketCount) || Math.floor(peaks.length / 2),
+      Math.floor(peaks.length / 2)
     );
+    const sourceDuration = Number(waveform.durationMs) || 0;
+    if (bucketCount <= 0 || sourceDuration <= 0) return;
 
-    this.ctx.restore();
+    const viewportLeft = Number.isFinite(options.viewportLeft) ? options.viewportLeft : 0;
+    const viewportRight = Number.isFinite(options.viewportRight) ? options.viewportRight : this.width;
+    const contentInset = Math.max(0, Number(options.contentInset) || 0);
+    const contentLeft = clipX + contentInset;
+    const contentRight = clipX + clipWidth - contentInset;
+    const startX = Math.max(viewportLeft, Math.floor(contentLeft));
+    const endX = Math.min(viewportRight, Math.ceil(contentRight));
+    if (endX <= startX) return;
+
+    const trimStart = Math.max(0, Number(options.trimStart) || 0);
+    const speed = Number.isFinite(options.speed) && options.speed > 0 ? options.speed : 1;
+    const clipSourceLength = (Number(options.clipDuration) || 0) * speed;
+    if (clipSourceLength <= 0) return;
+
+    // Match detail to the current timeline scale. Fine levels become visible as
+    // the user zooms in; coarse levels avoid scanning the full source when zoomed out.
+    if (Array.isArray(waveform.levels) && waveform.levels.length > 0) {
+      const sourceSpanPerPixel = clipSourceLength / clipWidth;
+      for (const level of waveform.levels) {
+        if (!level || !level.peaks || level.bucketCount <= 0) continue;
+        const levelBucketCount = Math.min(level.bucketCount, Math.floor(level.peaks.length / 2));
+        if (levelBucketCount <= 0) continue;
+        peaks = level.peaks;
+        bucketCount = levelBucketCount;
+        const bucketsPerPixel = sourceSpanPerPixel / sourceDuration * bucketCount;
+        if (bucketsPerPixel <= MAX_WAVEFORM_BUCKETS_PER_PIXEL) break;
+      }
+    }
+    const peakScale = Number(waveform.peakScale) > 0 ? Number(waveform.peakScale) : 1;
+
+    const ctx = this.ctx;
+    const amplitude = height / 2;
+    const centerY = y + amplitude;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(Math.max(contentLeft, viewportLeft), y, Math.min(contentRight, viewportRight) - Math.max(contentLeft, viewportLeft), height);
+    ctx.clip();
+    if (options.backgroundColor) {
+      ctx.fillStyle = options.backgroundColor;
+      ctx.fillRect(Math.max(contentLeft, viewportLeft), y, Math.min(contentRight, viewportRight) - Math.max(contentLeft, viewportLeft), height);
+    }
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.13)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(Math.max(contentLeft, viewportLeft), centerY + 0.5);
+    ctx.lineTo(Math.min(contentRight, viewportRight), centerY + 0.5);
+    ctx.stroke();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+
+    for (let pixelX = startX; pixelX < endX; pixelX += 1) {
+      const ratioA = Math.max(0, Math.min(1, (pixelX - clipX) / clipWidth));
+      const ratioB = Math.max(0, Math.min(1, (pixelX + 1 - clipX) / clipWidth));
+      const sourceA = options.reversed
+        ? trimStart + (1 - ratioA) * clipSourceLength
+        : trimStart + ratioA * clipSourceLength;
+      const sourceB = options.reversed
+        ? trimStart + (1 - ratioB) * clipSourceLength
+        : trimStart + ratioB * clipSourceLength;
+      const lowerSource = Math.max(0, Math.min(sourceDuration, Math.min(sourceA, sourceB)));
+      const upperSource = Math.max(0, Math.min(sourceDuration, Math.max(sourceA, sourceB)));
+      const firstBucket = Math.max(0, Math.min(bucketCount - 1, Math.floor(lowerSource / sourceDuration * bucketCount)));
+      const lastBucket = Math.max(firstBucket, Math.min(
+        bucketCount - 1,
+        Math.ceil(upperSource / sourceDuration * bucketCount) - 1
+      ));
+      let min = 0;
+      let max = 0;
+
+      for (let bucket = firstBucket; bucket <= lastBucket; bucket += 1) {
+        min = Math.min(min, (peaks[bucket * 2] || 0) / peakScale);
+        max = Math.max(max, (peaks[bucket * 2 + 1] || 0) / peakScale);
+      }
+
+      min = Math.max(-WAVEFORM_MAX_AMPLITUDE, min * WAVEFORM_VERTICAL_GAIN);
+      max = Math.min(WAVEFORM_MAX_AMPLITUDE, max * WAVEFORM_VERTICAL_GAIN);
+
+      ctx.moveTo(pixelX + 0.5, centerY + min * amplitude);
+      ctx.lineTo(pixelX + 0.5, centerY + max * amplitude);
+    }
+
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /**
+   * Draw a filmstrip from independent timestamped frame snapshots.
+   * @param {{frames:CanvasImageSource[],frameWidth:number,frameHeight:number,durationMs:number,sampleTimesMs:number[]}} thumbnails
+   * @param {number} clipX
+   * @param {number} y
+   * @param {number} clipWidth
+   * @param {number} height
+   * @param {{trimStart?:number,speed?:number,reversed?:boolean,clipDuration?:number,viewportLeft?:number,viewportRight?:number,contentInset?:number}} [options]
+   */
+  drawThumbnailStrip(thumbnails, clipX, y, clipWidth, height, options = {}) {
+    const frames = thumbnails && Array.isArray(thumbnails.frames) ? thumbnails.frames : [];
+    const frameCount = frames.length;
+    if (!thumbnails || frameCount === 0) return [];
+    if (!Number.isFinite(clipWidth) || clipWidth <= 0 || height <= 0) return [];
+
+    const viewportLeft = Number.isFinite(options.viewportLeft) ? options.viewportLeft : 0;
+    const viewportRight = Number.isFinite(options.viewportRight) ? options.viewportRight : this.width;
+    const contentInset = Math.max(0, Number(options.contentInset) || 0);
+    const visibleLeft = Math.max(clipX + contentInset, viewportLeft);
+    const visibleRight = Math.min(clipX + clipWidth - contentInset, viewportRight);
+    if (visibleRight <= visibleLeft) return [];
+
+    const tileWidth = Math.max(40, height * (thumbnails.frameWidth / thumbnails.frameHeight));
+    const firstTile = Math.max(0, Math.floor((visibleLeft - clipX) / tileWidth));
+    const lastTile = Math.max(firstTile, Math.ceil((visibleRight - clipX) / tileWidth));
+    const trimStart = Math.max(0, Number(options.trimStart) || 0);
+    const speed = Number.isFinite(options.speed) && options.speed > 0 ? options.speed : 1;
+    const clipSourceLength = (Number(options.clipDuration) || 0) * speed;
+    const mediaDuration = Number(thumbnails.durationMs) || 1;
+    const sourceSpanPerTile = clipSourceLength * Math.min(1, tileWidth / clipWidth);
+    const acceptableDistanceMs = Math.max(250, sourceSpanPerTile * 0.55);
+    const requestedTimes = new Map();
+
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(visibleLeft, y, visibleRight - visibleLeft, height);
+    ctx.clip();
+    ctx.globalAlpha = 1;
+
+    for (let tile = firstTile; tile <= lastTile; tile += 1) {
+      const targetX = clipX + tile * tileWidth;
+      const timelineRatio = Math.max(0, Math.min(1, (targetX + tileWidth / 2 - clipX) / clipWidth));
+      const mappedSourceTime = options.reversed
+        ? trimStart + (1 - timelineRatio) * clipSourceLength
+        : trimStart + timelineRatio * clipSourceLength;
+      const sourceTime = Math.max(0, Math.min(mediaDuration, mappedSourceTime));
+      let frameIndex;
+      if (Array.isArray(thumbnails.sampleTimesMs)
+          && thumbnails.sampleTimesMs.length === frameCount) {
+        frameIndex = this.findNearestThumbnailFrame(thumbnails.sampleTimesMs, sourceTime);
+        const nearestTime = thumbnails.sampleTimesMs[frameIndex];
+        const needsCloserFrame = !Number.isFinite(nearestTime)
+          || Math.abs(nearestTime - sourceTime) > acceptableDistanceMs;
+        if (clipWidth >= MIN_THUMBNAIL_REFINEMENT_WIDTH && needsCloserFrame) {
+          const requestKey = Math.round(sourceTime / 100) * 100;
+          requestedTimes.set(requestKey, sourceTime);
+        }
+      } else {
+        const sourceRatio = Math.max(0, Math.min(0.999999, sourceTime / mediaDuration));
+        frameIndex = Math.max(0, Math.min(
+          frameCount - 1,
+          Math.floor(sourceRatio * frameCount)
+        ));
+      }
+
+      if (frames[frameIndex]) ctx.drawImage(frames[frameIndex], targetX, y, tileWidth, height);
+    }
+
+    ctx.restore();
+    return Array.from(requestedTimes.values());
+  }
+
+  /**
+   * Find the closest captured frame to a source timestamp.
+   * @param {number[]} sampleTimesMs
+   * @param {number} sourceTimeMs
+   * @returns {number}
+   */
+  findNearestThumbnailFrame(sampleTimesMs, sourceTimeMs) {
+    if (!sampleTimesMs || sampleTimesMs.length <= 1) return 0;
+    let low = 0;
+    let high = sampleTimesMs.length - 1;
+    while (low < high) {
+      const middle = Math.floor((low + high) / 2);
+      if (sampleTimesMs[middle] < sourceTimeMs) {
+        low = middle + 1;
+      } else {
+        high = middle;
+      }
+    }
+    if (low === 0) return 0;
+    const previous = low - 1;
+    return Math.abs(sampleTimesMs[low] - sourceTimeMs)
+      < Math.abs(sampleTimesMs[previous] - sourceTimeMs)
+      ? low
+      : previous;
   }
 
   /**

@@ -50,16 +50,21 @@ export class Renderer {
   }
 
   /**
-   * Draw video thumbnail/filmstrip
+   * Draw source-aware min/max waveform peaks for a timeline clip.
    * @abstract
-   * @param {ImageBitmap|VideoFrame} frame
-   * @param {number} x
-   * @param {number} y
-   * @param {number} width
-   * @param {number} height
+   * @param {{peaks:Float32Array|Int16Array,bucketCount:number,durationMs:number,peakScale?:number,levels?:object[]}} waveform
    */
-  drawThumbnail(frame, x, y, width, height) {
-    throw new Error('drawThumbnail must be implemented by subclass');
+  drawWaveformPeaks(waveform, clipX, y, clipWidth, height, color, options) {
+    throw new Error('drawWaveformPeaks must be implemented by subclass');
+  }
+
+  /**
+   * Draw a source-aware thumbnail filmstrip for a timeline clip.
+   * @abstract
+   * @returns {number[]} Source timestamps needing a closer cached frame.
+   */
+  drawThumbnailStrip(thumbnails, clipX, y, clipWidth, height, options) {
+    throw new Error('drawThumbnailStrip must be implemented by subclass');
   }
 
   /**

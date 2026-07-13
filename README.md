@@ -8,6 +8,7 @@ Written in pure js/html with no dependencies.
 ## Features
 
 - Multi-track timeline with drag/drop, trimming, splitting, snapping, and frame-accurate stepping/nudging.
+- Locally generated video thumbnail strips and audio waveforms for imported media.
 - Per-clip controls: speed, volume, mute, reverse, visibility, color.
 - Global default video/audio filters with per-clip overrides.
 - Transcript loading + search for fast dialogue navigation.
