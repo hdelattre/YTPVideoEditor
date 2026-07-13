@@ -7,6 +7,8 @@ import { SHORTCUTS, JUMP_INTERVAL, MIN_ZOOM, MAX_ZOOM, ZOOM_STEP, MIN_CLIP_SPEED
 import * as actions from '../core/actions.js';
 import { createId } from './id.js';
 
+const CLIPBOARD_MIME = 'application/x-ytp-editor-clips';
+
 /**
  * Keyboard shortcuts manager
  */
@@ -51,9 +53,8 @@ export class KeyboardManager {
     this.register(SHORTCUTS.UNDO, () => this.state.undo());
     this.register(SHORTCUTS.REDO, () => this.state.redo());
 
-    // Clipboard (basic implementation)
-    this.register(SHORTCUTS.COPY, () => this.copyClip());
-    this.register(SHORTCUTS.PASTE, () => this.pasteClip());
+    // Clipboard events are routed by the editor so external media files and
+    // internal clips can share the native copy/paste commands.
     this.register(SHORTCUTS.SELECT_ALL, () => this.selectAllClips());
     this.register(SHORTCUTS.SELECT_LEFT, () => this.selectClipsLeft());
     this.register(SHORTCUTS.SELECT_RIGHT, () => this.selectClipsRight());
@@ -328,37 +329,73 @@ export class KeyboardManager {
   }
 
   /**
-   * Copy selected clip (stores in clipboard variable)
+   * Copy selected clips into the in-memory and native clipboard payloads.
+   * @param {DataTransfer|null} [clipboardData]
+   * @returns {boolean} Whether clips were copied
    */
-  copyClip() {
+  copyClip(clipboardData = null) {
     const state = this.state.getState();
     const selectedIds = Array.isArray(state.selectedClipIds) && state.selectedClipIds.length > 0
       ? state.selectedClipIds
       : (state.selectedClipId ? [state.selectedClipId] : []);
     const selectedClips = state.clips.filter(c => selectedIds.includes(c.id));
 
-    if (selectedClips.length > 0) {
-      window._ytpClipboard = {
-        clips: selectedClips.map(clip => ({ ...clip })),
-      };
-      console.log('Clips copied');
+    if (selectedClips.length === 0) return false;
+
+    window._ytpClipboard = {
+      clips: selectedClips.map((clip) => {
+        const clipboardClip = { ...clip };
+        // Derived waveform samples can be large and are regenerated from the media source.
+        delete clipboardClip.waveformData;
+        return clipboardClip;
+      }),
+    };
+    if (clipboardData) {
+      try {
+        clipboardData.setData(
+          'text/plain',
+          `${selectedClips.length} YTP Editor clip${selectedClips.length === 1 ? '' : 's'}`
+        );
+        clipboardData.setData(CLIPBOARD_MIME, JSON.stringify(window._ytpClipboard));
+      } catch (error) {
+        console.warn('Could not write editor clips to the system clipboard:', error);
+      }
+    }
+    console.log('Clips copied');
+    return true;
+  }
+
+  /** Read an internal clip payload from a native paste event. */
+  readClipClipboardData(clipboardData) {
+    if (!clipboardData) return null;
+    try {
+      const serialized = clipboardData.getData(CLIPBOARD_MIME);
+      if (!serialized) return null;
+      const parsed = JSON.parse(serialized);
+      return parsed && Array.isArray(parsed.clips) && parsed.clips.length > 0 ? parsed : null;
+    } catch (error) {
+      console.warn('Could not read editor clips from the system clipboard:', error);
+      return null;
     }
   }
 
   /**
    * Paste clip from clipboard
+   * @param {{clips?: object[]}|object|null} [clipboardData]
+   * @returns {boolean} Whether clips were pasted
    */
-  pasteClip() {
-    if (!window._ytpClipboard) {
+  pasteClip(clipboardData = window._ytpClipboard) {
+    if (!clipboardData) {
       console.log('Nothing to paste');
-      return;
+      return false;
     }
 
     const state = this.state.getState();
-    const clipData = window._ytpClipboard;
+    const clipData = clipboardData;
 
     if (clipData.clips && Array.isArray(clipData.clips)) {
       const clips = clipData.clips;
+      if (clips.length === 0) return false;
       const minStart = Math.min(...clips.map(clip => clip.start));
       const offset = state.playhead - minStart;
 
@@ -371,7 +408,7 @@ export class KeyboardManager {
       });
 
       console.log('Clips pasted');
-      return;
+      return true;
     }
 
     // Backward compatibility for single clip
@@ -382,6 +419,7 @@ export class KeyboardManager {
     }));
 
     console.log('Clip pasted');
+    return true;
   }
 
   /**

@@ -195,6 +195,66 @@ class YTPEditor {
     this.schedulePreviewRender();
   }
 
+  /** Return whether native text editing should own a clipboard command. */
+  isClipboardTextTarget(target) {
+    if (!(target instanceof HTMLElement)) return false;
+    return target.isContentEditable
+      || target.tagName === 'INPUT'
+      || target.tagName === 'TEXTAREA'
+      || target.tagName === 'SELECT';
+  }
+
+  /** Collect actual files exposed by a user-initiated paste event. */
+  getClipboardFiles(clipboardData) {
+    if (!clipboardData) return [];
+    const files = Array.from(clipboardData.files || []);
+    if (files.length > 0) return files;
+    return Array.from(clipboardData.items || [])
+      .filter(item => item.kind === 'file')
+      .map(item => item.getAsFile())
+      .filter(Boolean);
+  }
+
+  /** Put selected editor clips onto the native clipboard. */
+  handleClipboardCopy(event) {
+    if (this.isClipboardTextTarget(event.target)) return;
+    if (this.keyboard.copyClip(event.clipboardData)) event.preventDefault();
+  }
+
+  /** Route native clip payloads or pasted media files to the appropriate editor path. */
+  handleClipboardPaste(event) {
+    if (this.isClipboardTextTarget(event.target)) return;
+
+    const internalClips = this.keyboard.readClipClipboardData(event.clipboardData);
+    if (internalClips) {
+      event.preventDefault();
+      this.keyboard.pasteClip(internalClips);
+      return;
+    }
+
+    const clipboardFiles = this.getClipboardFiles(event.clipboardData);
+    if (clipboardFiles.length > 0) {
+      event.preventDefault();
+      const mediaFiles = clipboardFiles.filter(
+        file => this.mediaManager.isImportableMediaFile(file)
+      );
+      if (mediaFiles.length === 0) {
+        this.updateStatus('The clipboard files are not supported video or audio');
+        return;
+      }
+      this.mediaManager.addPastedFilesToTimeline(mediaFiles).catch((error) => {
+        console.error('Could not paste media files:', error);
+        this.updateStatus('Could not paste media files');
+      });
+      return;
+    }
+
+    if (window._ytpClipboard) {
+      event.preventDefault();
+      this.keyboard.pasteClip();
+    }
+  }
+
   /**
    * Setup event listeners for UI controls
    */
@@ -205,6 +265,8 @@ class YTPEditor {
 
     importBtn.addEventListener('click', () => fileInput.click());
     fileInput.addEventListener('change', (e) => this.mediaManager.handleFileImport(e));
+    document.addEventListener('copy', (e) => this.handleClipboardCopy(e));
+    document.addEventListener('paste', (e) => this.handleClipboardPaste(e));
 
     // Playback controls
     this.playBtn.addEventListener('click', () => this.play());

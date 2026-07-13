@@ -9,6 +9,21 @@ import { MediaVisualGenerator } from './MediaVisualGenerator.js';
 const MAX_CACHED_THUMBNAILS_PER_SOURCE = 256;
 const MAX_THUMBNAIL_REQUEST_BATCH = 24;
 const THUMBNAIL_TIME_QUANTUM_MS = 100;
+const MEDIA_TYPE_BY_EXTENSION = {
+  mp4: 'video/mp4',
+  m4v: 'video/mp4',
+  mov: 'video/quicktime',
+  webm: 'video/webm',
+  mkv: 'video/x-matroska',
+  mp3: 'audio/mpeg',
+  wav: 'audio/wav',
+  ogg: 'audio/ogg',
+  oga: 'audio/ogg',
+  m4a: 'audio/mp4',
+  aac: 'audio/aac',
+  flac: 'audio/flac',
+  opus: 'audio/ogg',
+};
 
 export class MediaManager {
   /**
@@ -22,6 +37,32 @@ export class MediaManager {
     this.analysisTokens = new Map();
     this.thumbnailRequestStates = new Map();
     this.thumbnailRefinementQueue = Promise.resolve();
+  }
+
+  /** Resolve a usable media MIME type when clipboard files omit File.type. */
+  getMediaType(file) {
+    const type = String(file && file.type ? file.type : '').toLowerCase();
+    if (type.startsWith('video/') || type.startsWith('audio/')) return type;
+    const extension = String(file && file.name ? file.name : '')
+      .split('.')
+      .pop()
+      .toLowerCase();
+    return MEDIA_TYPE_BY_EXTENSION[extension] || '';
+  }
+
+  /** Return whether a clipboard file belongs to the importer's media formats. */
+  isImportableMediaFile(file) {
+    return Boolean(file && this.getMediaType(file));
+  }
+
+  /** Classify a file consistently for metadata, playback, and derived visuals. */
+  getFileMediaKind(file) {
+    const type = this.getMediaType(file);
+    return {
+      type,
+      isAudioOnly: type.startsWith('audio/'),
+      isVideoType: type.startsWith('video/'),
+    };
   }
 
   /** Release any closable derived frames promptly instead of waiting for garbage collection. */
@@ -79,7 +120,7 @@ export class MediaManager {
 
     const analyze = async () => {
       if (!publish({ status: 'processing' })) return;
-      const isAudioFile = Boolean(file.type && file.type.startsWith('audio/'));
+      const isAudioFile = this.getFileMediaKind(file).isAudioOnly;
       const shouldGenerateThumbnails = metadata.hasVideo && !isAudioFile;
       // A video with confirmed or unknown audio gets a waveform attempt. Only a reliable
       // negative signal skips decoding, avoiding false negatives on browsers without track APIs.
@@ -451,6 +492,21 @@ export class MediaManager {
    */
   async handleFileImport(e) {
     const files = Array.from(e.target.files || []);
+    try {
+      await this.importFiles(files);
+    } finally {
+      // Selecting the same file again should still fire change after a failure.
+      e.target.value = '';
+    }
+  }
+
+  /**
+   * Import media files through the shared file picker/clipboard pipeline.
+   * @param {File[]} files
+   * @returns {Promise<import('../core/types.js').Media[]>}
+   */
+  async importFiles(files) {
+    const importedMedia = [];
 
     for (const file of files) {
       this.editor.updateStatus(`Loading ${file.name}...`);
@@ -459,8 +515,7 @@ export class MediaManager {
       const metadata = await this.getVideoMetadata(file);
 
       if (!this.editor.mediaFiles) this.editor.mediaFiles = new Map();
-      const isAudioOnly = file.type.startsWith('audio/');
-      const isVideoType = file.type.startsWith('video/');
+      const { type: mediaType, isAudioOnly, isVideoType } = this.getFileMediaKind(file);
 
       let missingMatch = this.findMissingMediaMatch(file, metadata);
       const sameNameMissing = missingMatch || this.findMissingMediaNameMatch(file);
@@ -486,18 +541,22 @@ export class MediaManager {
         });
         this.editor.state.dispatch(actions.updateMedia(mediaId, {
           name: file.name,
-          type: file.type,
+          type: mediaType,
           size: file.size,
           duration: metadata.duration,
           width: metadata.width,
           height: metadata.height,
         }));
         this.scheduleMediaVisualGeneration(mediaId, file, metadata);
+        const updatedMedia = this.editor.state.getState().mediaLibrary
+          .find(media => media.id === mediaId);
+        if (updatedMedia) importedMedia.push(updatedMedia);
         this.editor.updateStatus(`Relinked ${file.name}`);
       } else {
         const existingMatch = this.findExistingMediaMatch(file, metadata);
         if (existingMatch) {
           this.editor.updateStatus(`${file.name} is already loaded`);
+          importedMedia.push(existingMatch);
           continue;
         }
         // Add to media library
@@ -510,24 +569,25 @@ export class MediaManager {
           isAudioOnly,
           isVideoType,
         });
-        this.editor.state.dispatch(actions.addMedia({
+        const media = {
           id: mediaId,
           hash: mediaId, // For now, use ID as hash
           name: file.name,
-          type: file.type,
+          type: mediaType,
           size: file.size,
           duration: metadata.duration,
           width: metadata.width,
           height: metadata.height,
-        }));
+        };
+        this.editor.state.dispatch(actions.addMedia(media));
         this.scheduleMediaVisualGeneration(mediaId, file, metadata);
+        importedMedia.push(media);
 
         this.editor.updateStatus(`Loaded ${file.name}`);
       }
     }
 
-    // Clear file input
-    e.target.value = '';
+    return importedMedia;
   }
 
   /**
@@ -539,6 +599,7 @@ export class MediaManager {
   findMissingMediaMatch(file, metadata) {
     const state = this.editor.state.getState();
     if (!state.mediaLibrary || state.mediaLibrary.length === 0) return null;
+    const mediaType = this.getMediaType(file);
 
     let best = null;
     let bestScore = -1;
@@ -556,7 +617,7 @@ export class MediaManager {
       let score = 3;
       if (sizeMatch) score += 2;
       if (durationMatch) score += 1;
-      if (media.type && media.type === file.type) score += 1;
+      if (media.type && media.type === mediaType) score += 1;
       if (media.width && metadata.width && media.width === metadata.width) score += 1;
       if (media.height && metadata.height && media.height === metadata.height) score += 1;
 
@@ -597,12 +658,13 @@ export class MediaManager {
     const duration = Number.isFinite(metadata.duration) && metadata.duration > 0
       ? metadata.duration
       : null;
+    const mediaType = this.getMediaType(file);
 
     return state.mediaLibrary.find((media) => {
       if (!this.editor.mediaFiles.has(media.id)) return false;
       if (media.name !== file.name) return false;
       if (media.size !== file.size) return false;
-      if (media.type !== file.type) return false;
+      if (media.type !== mediaType) return false;
       if (duration !== null && Number.isFinite(media.duration) && media.duration > 0) {
         return Math.abs(media.duration - duration) < 100;
       }
@@ -619,8 +681,7 @@ export class MediaManager {
     return new Promise((resolve) => {
       const video = document.createElement('video');
       video.preload = 'metadata';
-      const isAudioOnly = file.type.startsWith('audio/');
-      const isVideoType = file.type.startsWith('video/');
+      const { isAudioOnly, isVideoType } = this.getFileMediaKind(file);
 
       video.onloadedmetadata = () => {
         let hasAudio = null;
@@ -827,8 +888,7 @@ export class MediaManager {
     this.editor.playbackCache.revokeObjectUrl(mediaId);
     this.editor.mediaFiles.set(mediaId, file);
 
-    const isAudioOnly = file.type.startsWith('audio/');
-    const isVideoType = file.type.startsWith('video/');
+    const { type: mediaType, isAudioOnly, isVideoType } = this.getFileMediaKind(file);
     this.editor.mediaInfo.set(mediaId, {
       hasAudio: metadata.hasAudio,
       hasVideo: metadata.hasVideo,
@@ -838,7 +898,7 @@ export class MediaManager {
 
     this.editor.state.dispatch(actions.updateMedia(mediaId, {
       name: file.name,
-      type: file.type,
+      type: mediaType,
       size: file.size,
       duration: metadata.duration,
       width: metadata.width,
@@ -853,20 +913,61 @@ export class MediaManager {
   /**
    * Add media to timeline
    * @param {import('../core/types.js').Media} media
+   * @param {{start?: number, trackId?: number|string, quiet?: boolean}} [options]
+   * @returns {boolean}
    */
-  addMediaToTimeline(media) {
+  addMediaToTimeline(media, options = {}) {
     const state = this.editor.state.getState();
+    const requestedTrack = options.trackId === undefined
+      ? null
+      : state.tracks.find(track => track.id === options.trackId);
+    const targetTrack = requestedTrack
+      || state.tracks.find(track => !track.locked && track.visible !== false);
+    if (!targetTrack || targetTrack.locked || targetTrack.visible === false) return false;
+    const start = Number.isFinite(options.start) ? Math.max(0, options.start) : state.playhead;
 
-    // Add clip at playhead position on first track
     this.editor.state.dispatch(actions.addClip({
       name: media.name,
       mediaId: media.id,
-      trackId: 0,
-      start: state.playhead,
+      trackId: targetTrack.id,
+      start,
       duration: media.duration,
       color: '#3f7182',
     }));
 
-    this.editor.updateStatus(`Added ${media.name} to timeline`);
+    if (!options.quiet) this.editor.updateStatus(`Added ${media.name} to timeline`);
+    return true;
+  }
+
+  /** Import pasted files and lay their clips out sequentially from the playhead. */
+  async addPastedFilesToTimeline(files) {
+    const mediaItems = await this.importFiles(files);
+    if (mediaItems.length === 0) return 0;
+
+    const state = this.editor.state.getState();
+    const targetTrack = state.tracks.find(track => !track.locked && track.visible !== false);
+    if (!targetTrack) {
+      this.editor.updateStatus('Unlock or show a track before pasting media');
+      return 0;
+    }
+
+    let insertTime = state.playhead;
+    let added = 0;
+    mediaItems.forEach((media) => {
+      const didAdd = this.addMediaToTimeline(media, {
+        start: insertTime,
+        trackId: targetTrack.id,
+        quiet: true,
+      });
+      if (!didAdd) return;
+      added += 1;
+      const duration = Number(media.duration);
+      if (Number.isFinite(duration) && duration > 0) insertTime += duration;
+    });
+
+    if (added > 0) {
+      this.editor.updateStatus(`Pasted ${added} media clip${added === 1 ? '' : 's'} to timeline`);
+    }
+    return added;
   }
 }
