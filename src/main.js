@@ -854,7 +854,8 @@ class YTPEditor {
    */
   addTrack() {
     const trackCount = this.state.getState().tracks.length;
-    this.state.dispatch(actions.addTrack(`Track ${trackCount + 1}`));
+    this.state.dispatch(actions.addTrack());
+    requestAnimationFrame(() => this.timeline.scrollToTrack(trackCount));
   }
 
   /**

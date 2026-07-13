@@ -749,6 +749,21 @@ input[type="range"]::-moz-range-thumb:hover {
   margin-top: 18px;
 }
 
+.delete-track-modal {
+  max-width: 440px;
+}
+
+.delete-track-note {
+  color: var(--color-text-muted);
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+
+.delete-track-actions {
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
 /* Refined editor components */
 .media-item {
   position: relative;

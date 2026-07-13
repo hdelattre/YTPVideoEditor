@@ -645,6 +645,18 @@ svg {
   background: var(--color-primary-active);
 }
 
+.btn-danger {
+  color: #fff;
+  background: #b84f4f;
+  border-color: #c05b5b;
+}
+
+.btn-danger:hover:not(:disabled) {
+  color: #fff;
+  background: #c65a5a;
+  border-color: #cf6868;
+}
+
 .btn-secondary {
   background: var(--color-secondary);
 }

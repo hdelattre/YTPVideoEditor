@@ -409,7 +409,10 @@ export function removeMedia(mediaId) {
  */
 export function addTrack(name) {
   return (state) => {
-    const newTrackId = state.tracks.length;
+    const newTrackId = state.tracks.reduce(
+      (maxId, track) => Math.max(maxId, Number.isFinite(track.id) ? track.id : -1),
+      -1
+    ) + 1;
     state.tracks.push({
       id: newTrackId,
       name: name || `Track ${newTrackId + 1}`,
@@ -428,9 +431,20 @@ export function addTrack(name) {
  */
 export function removeTrack(trackId) {
   return (state) => {
+    const removedClipIds = new Set(
+      state.clips.filter(c => c.trackId === trackId).map(c => c.id)
+    );
     state.tracks = state.tracks.filter(t => t.id !== trackId);
     // Remove clips on this track
     state.clips = state.clips.filter(c => c.trackId !== trackId);
+    if (Array.isArray(state.selectedClipIds)) {
+      state.selectedClipIds = state.selectedClipIds.filter(id => !removedClipIds.has(id));
+    }
+    if (removedClipIds.has(state.selectedClipId)) {
+      state.selectedClipId = state.selectedClipIds && state.selectedClipIds.length > 0
+        ? state.selectedClipIds[0]
+        : null;
+    }
     return state;
   };
 }

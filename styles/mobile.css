@@ -208,6 +208,36 @@
     display: none;
   }
 
+  .timeline-container {
+    --track-header-width: 124px;
+  }
+
+  .timeline-track-header {
+    gap: 3px;
+    padding: 3px 7px;
+    touch-action: pan-y;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  .timeline-track-controls {
+    gap: 4px;
+  }
+
+  .timeline-track-control {
+    width: 32px;
+    height: 32px;
+  }
+
+  .timeline-track-control svg {
+    width: 15px;
+    height: 15px;
+  }
+
+  .timeline-track-delete {
+    display: none;
+  }
+
   .zoom-label {
     margin-left: 0;
   }

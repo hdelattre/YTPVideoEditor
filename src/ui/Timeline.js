@@ -200,9 +200,45 @@ export class Timeline {
    * Resize canvas to fit container
    */
   resizeCanvas() {
-    const rect = this.container.getBoundingClientRect();
-    this.renderer.resize(Math.max(1, rect.width - TRACK_HEADER_WIDTH), rect.height);
-    this.render(this.state.getState());
+    const state = this.state.getState();
+    const viewportWidth = this.container.clientWidth;
+    const viewportHeight = this.container.clientHeight;
+    const trackHeaderWidth = this.getTrackHeaderWidth();
+    const contentHeight = Math.max(
+      viewportHeight,
+      RULER_HEIGHT + state.tracks.length * TRACK_HEIGHT
+    );
+    this.renderer.resize(Math.max(1, viewportWidth - trackHeaderWidth), contentHeight);
+    if (this.trackHeaders) {
+      this.trackHeaders.style.height = `${contentHeight}px`;
+    }
+    this.render(state);
+  }
+
+  /**
+   * Read the responsive track-header width shared with CSS.
+   * @returns {number}
+   */
+  getTrackHeaderWidth() {
+    const value = getComputedStyle(this.container).getPropertyValue('--track-header-width');
+    const parsed = parseFloat(value);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : TRACK_HEADER_WIDTH;
+  }
+
+  /**
+   * Scroll a track row into view.
+   * @param {number} trackIndex
+   */
+  scrollToTrack(trackIndex) {
+    const rowTop = RULER_HEIGHT + Math.max(0, trackIndex) * TRACK_HEIGHT;
+    const rowBottom = rowTop + TRACK_HEIGHT;
+    const viewTop = this.container.scrollTop;
+    const viewBottom = viewTop + this.container.clientHeight;
+    if (rowTop < viewTop) {
+      this.container.scrollTop = rowTop;
+    } else if (rowBottom > viewBottom) {
+      this.container.scrollTop = rowBottom - this.container.clientHeight;
+    }
   }
 
   /**
@@ -271,6 +307,20 @@ export class Timeline {
    * @param {import('../core/types.js').EditorState} state
    */
   render(state) {
+    const requiredWidth = Math.max(1, this.container.clientWidth - this.getTrackHeaderWidth());
+    const requiredHeight = Math.max(
+      this.container.clientHeight,
+      RULER_HEIGHT + state.tracks.length * TRACK_HEIGHT
+    );
+    if (
+      Math.abs(this.renderer.width - requiredWidth) > 0.5
+      || Math.abs(this.renderer.height - requiredHeight) > 0.5
+    ) {
+      this.renderer.resize(requiredWidth, requiredHeight);
+      if (this.trackHeaders) {
+        this.trackHeaders.style.height = `${requiredHeight}px`;
+      }
+    }
     this.renderer.clear();
     this.renderTrackHeaders(state);
 
@@ -376,6 +426,9 @@ export class Timeline {
     state.tracks.forEach((track, index) => {
       const row = document.createElement('div');
       row.className = `timeline-track-header${track.visible === false ? ' is-hidden' : ''}${track.locked ? ' is-locked' : ''}`;
+      if (state.tracks.length > 1) {
+        this.setupTrackLongPress(row, track);
+      }
 
       const identity = document.createElement('div');
       identity.className = 'timeline-track-identity';
@@ -429,9 +482,70 @@ export class Timeline {
         controls.appendChild(button);
       });
 
+      const deleteButton = document.createElement('button');
+      deleteButton.type = 'button';
+      deleteButton.className = 'timeline-track-control timeline-track-delete';
+      deleteButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M9 7V4.5h6V7M7.5 7l.8 12h7.4l.8-12M10 10v6M14 10v6"/></svg>';
+      deleteButton.disabled = state.tracks.length <= 1;
+      deleteButton.title = state.tracks.length <= 1 ? 'At least one track is required' : `Delete ${track.name}`;
+      deleteButton.setAttribute('aria-label', deleteButton.title);
+      deleteButton.addEventListener('click', () => this.requestTrackDeletion(track));
+      controls.appendChild(deleteButton);
+
       row.appendChild(controls);
       this.trackHeaders.appendChild(row);
     });
+  }
+
+  /**
+   * On touch layouts, a deliberate hold on the track header opens deletion confirmation.
+   * Moving the pointer cancels the hold so vertical scrolling remains natural.
+   * @param {HTMLElement} row
+   * @param {import('../core/types.js').Track} track
+   */
+  setupTrackLongPress(row, track) {
+    const isCoarsePointer = typeof window !== 'undefined'
+      && typeof window.matchMedia === 'function'
+      && window.matchMedia('(pointer: coarse)').matches;
+    if (!isCoarsePointer) return;
+
+    row.tabIndex = 0;
+    row.title = `Press and hold to delete ${track.name}`;
+    row.setAttribute('aria-label', `${track.name}. Press and hold to delete.`);
+
+    let timer = null;
+    let startX = 0;
+    let startY = 0;
+    const cancel = () => {
+      if (timer !== null) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      row.classList.remove('is-long-pressing');
+    };
+
+    row.addEventListener('pointerdown', (event) => {
+      if (event.pointerType === 'mouse' || event.target.closest('button')) return;
+      startX = event.clientX;
+      startY = event.clientY;
+      row.classList.add('is-long-pressing');
+      timer = setTimeout(() => {
+        timer = null;
+        row.classList.remove('is-long-pressing');
+        if (navigator.vibrate) navigator.vibrate(20);
+        this.requestTrackDeletion(track);
+      }, 650);
+    });
+
+    row.addEventListener('pointermove', (event) => {
+      if (timer === null) return;
+      if (Math.hypot(event.clientX - startX, event.clientY - startY) > 10) {
+        cancel();
+      }
+    });
+    row.addEventListener('pointerup', cancel);
+    row.addEventListener('pointercancel', cancel);
+    row.addEventListener('pointerleave', cancel);
   }
 
   /**
@@ -884,11 +998,10 @@ export class Timeline {
    * @param {WheelEvent} e
    */
   onWheel(e) {
-    e.preventDefault();
-
     const state = this.state.getState();
 
     if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
       // Zoom
       const zoomStep = ZOOM_STEP * 0.5;
       const delta = e.deltaY > 0 ? -zoomStep : zoomStep;
@@ -903,14 +1016,90 @@ export class Timeline {
       this.isPointerOverTimeline = true;
       this.state.dispatch(actions.setZoom(newZoom), false);
 
-    } else {
-      // Horizontal scroll
-      const scrollDelta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+    } else if (
+      e.shiftKey
+      || Math.abs(e.deltaX) > Math.abs(e.deltaY)
+      || this.container.scrollHeight <= this.container.clientHeight
+    ) {
+      // Horizontal scroll. A normal vertical wheel scrolls tracks when they overflow.
+      e.preventDefault();
+      const scrollDelta = e.shiftKey
+        ? e.deltaY
+        : (Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY);
       this.scrollX += scrollDelta;
       const maxScroll = this.getMaxScroll(state, this.renderer.width);
       this.scrollX = Math.max(0, Math.min(this.scrollX, maxScroll));
       this.render(state);
     }
+  }
+
+  /**
+   * Delete an empty track immediately, or confirm when it contains clips.
+   * @param {import('../core/types.js').Track} track
+   */
+  async requestTrackDeletion(track) {
+    const state = this.state.getState();
+    if (state.tracks.length <= 1) return;
+    const clipCount = state.clips.filter(clip => clip.trackId === track.id).length;
+    const isCoarsePointer = typeof window !== 'undefined'
+      && typeof window.matchMedia === 'function'
+      && window.matchMedia('(pointer: coarse)').matches;
+    if (clipCount === 0 && !isCoarsePointer) {
+      this.state.dispatch(actions.removeTrack(track.id));
+      return;
+    }
+    const confirmed = await this.confirmTrackDeletion(track, clipCount);
+    if (confirmed) {
+      this.state.dispatch(actions.removeTrack(track.id));
+    }
+  }
+
+  /**
+   * Show the in-app track deletion confirmation.
+   * @param {import('../core/types.js').Track} track
+   * @param {number} clipCount
+   * @returns {Promise<boolean>}
+   */
+  confirmTrackDeletion(track, clipCount) {
+    const modal = document.getElementById('deleteTrackModal');
+    const message = document.getElementById('deleteTrackMessage');
+    const confirmBtn = document.getElementById('deleteTrackConfirmBtn');
+    const cancelBtn = document.getElementById('deleteTrackCancelBtn');
+    const closeBtn = document.getElementById('deleteTrackCloseBtn');
+    if (!modal || !message || !confirmBtn || !cancelBtn || !closeBtn) {
+      return Promise.resolve(false);
+    }
+
+    message.textContent = clipCount === 0
+      ? `${track.name} is empty.`
+      : `${track.name} contains ${clipCount} clip${clipCount === 1 ? '' : 's'}.`;
+    modal.style.display = 'flex';
+    cancelBtn.focus();
+
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (confirmed) => {
+        if (settled) return;
+        settled = true;
+        modal.style.display = 'none';
+        confirmBtn.onclick = null;
+        cancelBtn.onclick = null;
+        closeBtn.onclick = null;
+        modal.onclick = null;
+        document.removeEventListener('keydown', onKeyDown);
+        resolve(confirmed);
+      };
+      const onKeyDown = (event) => {
+        if (event.key === 'Escape') finish(false);
+      };
+      confirmBtn.onclick = () => finish(true);
+      cancelBtn.onclick = () => finish(false);
+      closeBtn.onclick = () => finish(false);
+      modal.onclick = (event) => {
+        if (event.target === modal) finish(false);
+      };
+      document.addEventListener('keydown', onKeyDown);
+    });
   }
 
   /**
