@@ -1182,6 +1182,7 @@ export class Timeline {
    * @returns {number}
    */
   getSnapThreshold(state) {
+    if (state.snappingEnabled === false) return 0;
     const zoom = Number.isFinite(state.zoom) ? state.zoom : 0;
     const snapPixels = 6;
     return Math.max(0, pixelsToTime(snapPixels, zoom));
@@ -1194,6 +1195,7 @@ export class Timeline {
    * @returns {number}
    */
   getSnapBiasThreshold(state) {
+    if (state.snappingEnabled === false) return 0;
     const zoom = Number.isFinite(state.zoom) ? state.zoom : 0;
     const biasPixels = 3;
     return Math.max(0, pixelsToTime(biasPixels, zoom));

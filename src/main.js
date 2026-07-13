@@ -147,6 +147,8 @@ class YTPEditor {
     this.fileInput = document.getElementById('fileInput');
     this.playBtn = document.getElementById('playBtn');
     this.pauseBtn = document.getElementById('pauseBtn');
+    this.prevFrameBtn = document.getElementById('prevFrameBtn');
+    this.nextFrameBtn = document.getElementById('nextFrameBtn');
     this.undoBtn = document.getElementById('undoBtn');
     this.redoBtn = document.getElementById('redoBtn');
     this.newProjectBtn = document.getElementById('newProjectBtn');
@@ -159,6 +161,7 @@ class YTPEditor {
     this.zoomOutBtn = document.getElementById('zoomOutBtn');
     this.zoomLevelLabel = document.getElementById('zoomLevel');
     this.revealPlayheadBtn = document.getElementById('revealPlayheadBtn');
+    this.snapToggleBtn = document.getElementById('snapToggleBtn');
     this.volumeSlider = document.getElementById('volumeSlider');
     this.timeDisplay = document.getElementById('timeDisplay');
     this.statusText = document.getElementById('statusText');
@@ -198,6 +201,12 @@ class YTPEditor {
     // Playback controls
     this.playBtn.addEventListener('click', () => this.play());
     this.pauseBtn.addEventListener('click', () => this.pause());
+    if (this.prevFrameBtn) {
+      this.prevFrameBtn.addEventListener('click', () => this.keyboard.stepFrame(-1));
+    }
+    if (this.nextFrameBtn) {
+      this.nextFrameBtn.addEventListener('click', () => this.keyboard.stepFrame(1));
+    }
 
     // Toolbar controls
     this.undoBtn.addEventListener('click', () => this.state.undo());
@@ -218,6 +227,9 @@ class YTPEditor {
         this.timeline.scrollToTime(this.state.getState().playhead);
         this.timeline.render(this.state.getState());
       });
+    }
+    if (this.snapToggleBtn) {
+      this.snapToggleBtn.addEventListener('click', () => this.keyboard.toggleSnapping());
     }
 
     this.setupPreviewResizer();
@@ -501,6 +513,16 @@ class YTPEditor {
     const zoomPercent = Math.round(Math.pow(2, state.zoom) * 100);
     this.zoomLevelLabel.textContent = `${zoomPercent}%`;
 
+    if (this.prevFrameBtn) {
+      this.prevFrameBtn.disabled = state.playhead <= 0;
+    }
+    if (this.snapToggleBtn) {
+      const snappingEnabled = state.snappingEnabled !== false;
+      this.snapToggleBtn.classList.toggle('is-active', snappingEnabled);
+      this.snapToggleBtn.setAttribute('aria-pressed', String(snappingEnabled));
+      this.snapToggleBtn.title = `${snappingEnabled ? 'Disable' : 'Enable'} timeline snapping (N)`;
+    }
+
     // Update play/pause buttons
     if (state.isPlaying) {
       this.playBtn.style.display = 'none';
@@ -722,6 +744,10 @@ class YTPEditor {
   updateTimeDisplay(timeMs) {
     if (this.timeDisplay) {
       this.timeDisplay.textContent = formatTime(timeMs);
+      const fpsValue = Number(this.state.getState().exportSettings?.fps);
+      const fps = Number.isFinite(fpsValue) && fpsValue > 0 ? fpsValue : 30;
+      const frameNumber = Math.round(timeMs / (1000 / fps));
+      this.timeDisplay.title = `Frame ${frameNumber} at ${fps} fps`;
     }
   }
 

@@ -146,6 +146,7 @@
  * @property {Track[]} tracks - All tracks
  * @property {Media[]} mediaLibrary - Imported media files
  * @property {number} playhead - Current playhead position (ms)
+ * @property {boolean} snappingEnabled - Whether timeline boundary snapping is enabled
  * @property {number} zoom - Zoom level (-5 to 5)
  * @property {string|null} selectedClipId - ID of selected clip
  * @property {string[]} selectedClipIds - IDs of selected clips

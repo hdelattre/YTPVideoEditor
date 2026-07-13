@@ -34,6 +34,13 @@ export class KeyboardManager {
     this.register(SHORTCUTS.JUMP_BACKWARD, () => this.jumpBackward());
     this.register(SHORTCUTS.JUMP_FORWARD, () => this.jumpForward());
     this.register(SHORTCUTS.PAUSE, () => this.pause());
+    this.register(SHORTCUTS.STEP_FRAME_BACKWARD, () => this.stepFrame(-1));
+    this.register(SHORTCUTS.STEP_FRAME_FORWARD, () => this.stepFrame(1));
+    this.register(SHORTCUTS.NUDGE_CLIPS_BACKWARD, () => this.nudgeSelectedClips(-1));
+    this.register(SHORTCUTS.NUDGE_CLIPS_FORWARD, () => this.nudgeSelectedClips(1));
+    this.register(SHORTCUTS.NUDGE_EDGE_BACKWARD, () => this.nudgeNearestEdge(-1));
+    this.register(SHORTCUTS.NUDGE_EDGE_FORWARD, () => this.nudgeNearestEdge(1));
+    this.register(SHORTCUTS.TOGGLE_SNAPPING, () => this.toggleSnapping());
 
     // Editing
     this.register(SHORTCUTS.SPLIT, () => this.splitClip());
@@ -154,6 +161,136 @@ export class KeyboardManager {
     const currentTime = this.state.getState().playhead;
     const newTime = currentTime + JUMP_INTERVAL;
     this.state.dispatch(actions.setPlayhead(newTime), false);
+  }
+
+  /**
+   * Get the project frame rate used by frame-accurate timeline controls.
+   * @returns {number}
+   */
+  getProjectFps() {
+    const fps = Number(this.state.getState().exportSettings?.fps);
+    return Number.isFinite(fps) && fps > 0 ? fps : 30;
+  }
+
+  /**
+   * Move the playhead to the adjacent frame boundary.
+   * @param {-1|1} direction
+   */
+  stepFrame(direction) {
+    const state = this.state.getState();
+    const frameDuration = 1000 / this.getProjectFps();
+    const framePosition = state.playhead / frameDuration;
+    const epsilon = 1e-7;
+    const frameNumber = direction > 0
+      ? Math.floor(framePosition + epsilon) + 1
+      : Math.ceil(framePosition - epsilon) - 1;
+    const newTime = Math.max(0, frameNumber * frameDuration);
+
+    if (state.isPlaying) {
+      this.state.dispatch(actions.setPlaying(false), false);
+    }
+    this.state.dispatch(actions.setPlayhead(newTime), false);
+  }
+
+  /**
+   * Move all unlocked selected clips by one frame while preserving their spacing.
+   * @param {-1|1} direction
+   */
+  nudgeSelectedClips(direction) {
+    const state = this.state.getState();
+    const selectedIds = Array.isArray(state.selectedClipIds) && state.selectedClipIds.length > 0
+      ? state.selectedClipIds
+      : (state.selectedClipId ? [state.selectedClipId] : []);
+    const selectedClips = state.clips.filter((clip) => {
+      if (!selectedIds.includes(clip.id)) return false;
+      const track = state.tracks.find(item => item.id === clip.trackId);
+      return !track || !track.locked;
+    });
+    if (selectedClips.length === 0) return;
+
+    const requestedDelta = direction * (1000 / this.getProjectFps());
+    const minStart = Math.min(...selectedClips.map(clip => clip.start));
+    const delta = Math.max(requestedDelta, -minStart);
+    if (Math.abs(delta) < 1e-7) return;
+
+    this.state.dispatch(actions.moveClips(selectedClips.map(clip => ({
+      id: clip.id,
+      start: clip.start + delta,
+    }))));
+  }
+
+  /**
+   * Nudge the selected clip edge nearest the playhead by one frame.
+   * Source bounds are preserved for sped-up and reversed clips.
+   * @param {-1|1} direction
+   */
+  nudgeNearestEdge(direction) {
+    const state = this.state.getState();
+    const selectedIds = Array.isArray(state.selectedClipIds) && state.selectedClipIds.length > 0
+      ? state.selectedClipIds
+      : (state.selectedClipId ? [state.selectedClipId] : []);
+    if (selectedIds.length !== 1) return;
+
+    const clip = state.clips.find(item => item.id === selectedIds[0]);
+    if (!clip) return;
+    const track = state.tracks.find(item => item.id === clip.trackId);
+    if (track && track.locked) return;
+
+    const clipStart = clip.start;
+    const clipEnd = clip.start + clip.duration;
+    const edge = Math.abs(state.playhead - clipStart) <= Math.abs(state.playhead - clipEnd)
+      ? 'left'
+      : 'right';
+    const speed = Number.isFinite(clip.speed) && clip.speed > 0 ? clip.speed : 1;
+    const trimStart = Number.isFinite(clip.trimStart) ? clip.trimStart : 0;
+    const media = state.mediaLibrary.find(item => item.id === clip.mediaId);
+    const mediaDuration = media && Number.isFinite(media.duration) && media.duration > 0
+      ? media.duration
+      : null;
+    const minDuration = Math.min(clip.duration, 100, 1000 / this.getProjectFps());
+    let delta = direction * (1000 / this.getProjectFps());
+
+    if (edge === 'left') {
+      delta = Math.max(delta, -clipStart);
+      delta = Math.min(delta, clip.duration - minDuration);
+
+      if (!clip.reversed) {
+        delta = Math.max(delta, -trimStart / speed);
+      } else if (delta < 0 && mediaDuration !== null) {
+        const sourceEnd = trimStart + clip.duration * speed;
+        const availableSource = Math.max(0, mediaDuration - sourceEnd);
+        delta = Math.max(delta, -availableSource / speed);
+      }
+
+      if (Math.abs(delta) < 1e-7) return;
+      this.state.dispatch(actions.updateClip(clip.id, {
+        start: clip.start + delta,
+        duration: clip.duration - delta,
+        trimStart: clip.reversed ? trimStart : trimStart + delta * speed,
+      }));
+      return;
+    }
+
+    delta = Math.max(delta, minDuration - clip.duration);
+    if (clip.reversed) {
+      delta = Math.min(delta, trimStart / speed);
+    } else if (delta > 0 && mediaDuration !== null) {
+      const sourceEnd = trimStart + clip.duration * speed;
+      const availableSource = Math.max(0, mediaDuration - sourceEnd);
+      delta = Math.min(delta, availableSource / speed);
+    }
+
+    if (Math.abs(delta) < 1e-7) return;
+    this.state.dispatch(actions.updateClip(clip.id, {
+      duration: clip.duration + delta,
+      trimStart: clip.reversed ? trimStart - delta * speed : trimStart,
+    }));
+  }
+
+  /** Toggle magnetic timeline snapping. */
+  toggleSnapping() {
+    const enabled = this.state.getState().snappingEnabled !== false;
+    this.state.dispatch(actions.setSnappingEnabled(!enabled), false);
   }
 
   splitClip() {

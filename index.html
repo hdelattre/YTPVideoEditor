@@ -90,11 +90,17 @@
                     </div>
                     <div class="preview-controls">
                         <div class="transport-controls">
+                            <button id="prevFrameBtn" class="btn btn-icon frame-step-button" title="Previous frame (Left Arrow)" aria-label="Previous frame">
+                                <svg viewBox="0 0 24 24" aria-hidden="true" class="icon-fill"><path d="M7 6h2v12H7zM18 6v12l-8-6 8-6Z"/></svg>
+                            </button>
                             <button id="playBtn" class="btn btn-icon transport-button" title="Play (Space)" aria-label="Play">
                                 <svg viewBox="0 0 24 24" aria-hidden="true" class="icon-fill"><path d="m9 6 9 6-9 6V6Z"/></svg>
                             </button>
                             <button id="pauseBtn" class="btn btn-icon transport-button" title="Pause (Space)" aria-label="Pause" style="display:none;">
                                 <svg viewBox="0 0 24 24" aria-hidden="true" class="icon-fill"><path d="M8 6h3v12H8zM14 6h3v12h-3z"/></svg>
+                            </button>
+                            <button id="nextFrameBtn" class="btn btn-icon frame-step-button" title="Next frame (Right Arrow)" aria-label="Next frame">
+                                <svg viewBox="0 0 24 24" aria-hidden="true" class="icon-fill"><path d="M15 6h2v12h-2zM6 6v12l8-6-8-6Z"/></svg>
                             </button>
                             <span id="timeDisplay" class="time-display">00:00.00</span>
                         </div>
@@ -124,6 +130,10 @@
                         <button type="button" id="deleteBtn" class="btn btn-sm" title="Delete selection (Delete)">
                             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M9 7V4.5h6V7M7.5 7l.8 12h7.4l.8-12M10 10v6M14 10v6"/></svg>
                             <span>Delete</span>
+                        </button>
+                        <button type="button" id="snapToggleBtn" class="btn btn-sm timeline-toggle is-active" title="Toggle timeline snapping (N)" aria-label="Timeline snapping" aria-pressed="true">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4v7a6 6 0 0 0 12 0V4M6 8h4M14 8h4"/></svg>
+                            <span>Snap</span>
                         </button>
                         <span class="separator"></span>
                         <span class="zoom-label">Zoom</span>
@@ -180,6 +190,10 @@
                     <tr><td><kbd>Space</kbd></td><td>Play/Pause</td></tr>
                     <tr><td><kbd>J</kbd></td><td>Jump backward 1s</td></tr>
                     <tr><td><kbd>L</kbd></td><td>Jump forward 1s</td></tr>
+                    <tr><td><kbd>←</kbd> / <kbd>→</kbd></td><td>Previous/next frame</td></tr>
+                    <tr><td><kbd>Alt</kbd>+<kbd>←</kbd> / <kbd>→</kbd></td><td>Nudge selected clips one frame</td></tr>
+                    <tr><td><kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>←</kbd> / <kbd>→</kbd></td><td>Nudge nearest selected edge one frame</td></tr>
+                    <tr><td><kbd>N</kbd></td><td>Toggle timeline snapping</td></tr>
                     <tr><td><kbd>S</kbd></td><td>Split clip at playhead</td></tr>
                     <tr><td><kbd>Delete</kbd></td><td>Delete selected clip</td></tr>
                     <tr><td><kbd>R</kbd></td><td>Reverse clip</td></tr>

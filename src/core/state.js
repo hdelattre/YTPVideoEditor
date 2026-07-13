@@ -47,6 +47,7 @@ export class StateManager {
       tracks: this.createDefaultTracks(),
       mediaLibrary: [],
       playhead: 0,
+      snappingEnabled: true,
       zoom: 0,
       selectedClipId: null,
       selectedClipIds: [],
@@ -236,6 +237,9 @@ export class StateManager {
       }
       if (typeof loadedState.selectedMediaId !== 'string') {
         loadedState.selectedMediaId = null;
+      }
+      if (typeof loadedState.snappingEnabled !== 'boolean') {
+        loadedState.snappingEnabled = true;
       }
       const defaultExportSettings = createDefaultExportSettings();
       loadedState.exportSettings = {

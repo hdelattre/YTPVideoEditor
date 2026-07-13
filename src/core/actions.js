@@ -212,6 +212,18 @@ export function setPlayhead(time) {
 }
 
 /**
+ * Enable or disable timeline snapping
+ * @param {boolean} enabled
+ * @returns {import('./types.js').ActionFunction}
+ */
+export function setSnappingEnabled(enabled) {
+  return (state) => {
+    state.snappingEnabled = Boolean(enabled);
+    return state;
+  };
+}
+
+/**
  * Set playing state
  * @param {boolean} isPlaying
  * @returns {import('./types.js').ActionFunction}

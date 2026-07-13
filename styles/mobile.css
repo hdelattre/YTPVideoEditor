@@ -184,6 +184,16 @@
     display: none;
   }
 
+  .transport-controls {
+    position: static;
+    flex: 0 0 auto;
+    transform: none;
+  }
+
+  .preview-volume {
+    flex: 0 0 auto;
+  }
+
   .time-display {
     min-width: 90px;
   }
