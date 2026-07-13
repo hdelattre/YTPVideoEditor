@@ -211,7 +211,12 @@ export class MediaManager {
     mediaList.innerHTML = '';
 
     if (state.mediaLibrary.length === 0) {
-      mediaList.innerHTML = '<p class="empty-message">No media files yet</p>';
+      mediaList.innerHTML = `
+        <div class="empty-state empty-state-media">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6.5h6l2 2h8v10H4v-12Z"/><path d="M9 13h6M12 10v6"/></svg>
+          <p>Your imported video and audio will appear here.</p>
+        </div>
+      `;
       return;
     }
 
@@ -358,7 +363,7 @@ export class MediaManager {
       trackId: 0,
       start: state.playhead,
       duration: media.duration,
-      color: '#4a9eff',
+      color: '#586fc9',
     }));
 
     this.editor.updateStatus(`Added ${media.name} to timeline`);

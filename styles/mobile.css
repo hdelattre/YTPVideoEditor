@@ -39,6 +39,11 @@
     display: inline-flex;
   }
 
+  .desktop-only,
+  .project-name {
+    display: none;
+  }
+
   body {
     overflow: hidden;
     -webkit-text-size-adjust: 100%;
@@ -91,15 +96,13 @@
     width: 44px;
     height: 44px;
     padding: 0;
-    font-size: 0;
     display: inline-flex;
     align-items: center;
     justify-content: center;
   }
 
-  #exportBtn::before {
-    content: '⤓';
-    font-size: 18px;
+  #exportBtn span {
+    display: none;
   }
 
   .editor-main {

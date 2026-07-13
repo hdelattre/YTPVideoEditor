@@ -36,41 +36,91 @@ export class Canvas2DRenderer extends Renderer {
    */
   drawClip(clip, x, y, width, height, selected) {
     const ctx = this.ctx;
+    const radius = Math.min(4, width / 2, height / 2);
 
-    // Draw clip background
-    ctx.fillStyle = selected ? COLORS.clipSelected : (clip.color || COLORS.clipDefault);
-    ctx.fillRect(x, y, width, height);
-
-    // Draw clip border
-    ctx.strokeStyle = selected ? '#ffffff' : 'rgba(255, 255, 255, 0.2)';
-    ctx.lineWidth = selected ? 2 : 1;
-    ctx.strokeRect(x, y, width, height);
-
-    // Draw clip name
-    ctx.fillStyle = COLORS.clipText;
-    ctx.font = '12px sans-serif';
-    ctx.textBaseline = 'top';
-
-    // Clip text to avoid overflow
     ctx.save();
     ctx.beginPath();
-    ctx.rect(x + 4, y + 4, width - 8, height - 8);
+    if (typeof ctx.roundRect === 'function') {
+      ctx.roundRect(x, y, width, height, radius);
+    } else {
+      ctx.rect(x, y, width, height);
+    }
     ctx.clip();
 
-    ctx.fillText(clip.name, x + 6, y + 6);
+    ctx.globalAlpha = selected ? 1 : 0.9;
+    ctx.fillStyle = clip.color || COLORS.clipDefault;
+    ctx.fillRect(x, y, width, height);
 
-    // Draw speed indicator if not 1.0
+    // A dark lower layer keeps waveform and metadata legible on custom colors.
+    ctx.globalAlpha = 0.13;
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(x, y + 26, width, Math.max(0, height - 26));
+    ctx.restore();
+
+    ctx.save();
+    ctx.beginPath();
+    if (typeof ctx.roundRect === 'function') {
+      ctx.roundRect(x + 0.5, y + 0.5, Math.max(0, width - 1), Math.max(0, height - 1), radius);
+    } else {
+      ctx.rect(x + 0.5, y + 0.5, Math.max(0, width - 1), Math.max(0, height - 1));
+    }
+    ctx.strokeStyle = selected ? '#b8c0ff' : 'rgba(255, 255, 255, 0.18)';
+    ctx.lineWidth = selected ? 2 : 1;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /**
+   * Draw clip text and selection handles above thumbnails/waveforms.
+   * @param {import('../core/types.js').Clip} clip
+   * @param {number} x
+   * @param {number} y
+   * @param {number} width
+   * @param {number} height
+   * @param {boolean} selected
+   */
+  drawClipLabel(clip, x, y, width, height, selected) {
+    const ctx = this.ctx;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x + 3, y + 3, Math.max(0, width - 6), Math.max(0, height - 6));
+    ctx.clip();
+    ctx.fillStyle = COLORS.clipText;
+    ctx.font = '600 11px Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    ctx.textBaseline = 'top';
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.42)';
+    ctx.shadowBlur = 2;
+    ctx.fillText(clip.name, x + 7, y + 7);
+    ctx.shadowBlur = 0;
+
     if (clip.speed && clip.speed !== 1.0) {
-      ctx.fillText(`${clip.speed}x`, x + 6, y + 22);
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.78)';
+      ctx.font = '500 9px "SFMono-Regular", Consolas, monospace';
+      ctx.fillText(`${clip.speed}×`, x + 7, y + 30);
     }
 
-    // Draw reverse indicator
     if (clip.reversed) {
-      ctx.fillText('◄', x + width - 20, y + 6);
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+      ctx.font = '10px sans-serif';
+      ctx.fillText('◀', x + width - 18, y + 7);
     }
 
     ctx.restore();
 
+    if (selected && width >= 16) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(238, 240, 255, 0.9)';
+      ctx.lineWidth = 1.5;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(x + 4, y + height / 2 - 6);
+      ctx.lineTo(x + 4, y + height / 2 + 6);
+      ctx.moveTo(x + width - 4, y + height / 2 - 6);
+      ctx.lineTo(x + width - 4, y + height / 2 + 6);
+      ctx.stroke();
+      ctx.restore();
+    }
   }
 
   /**
@@ -196,7 +246,7 @@ export class Canvas2DRenderer extends Renderer {
 
     // Draw background
     ctx.fillStyle = COLORS.timelineBackground;
-    ctx.fillRect(0, 0, this.canvas.width, height);
+    ctx.fillRect(0, 0, this.width, height);
 
     // Determine tick interval based on zoom
     const msPerPixel = 1 / pixelsPerMs;
@@ -209,7 +259,7 @@ export class Canvas2DRenderer extends Renderer {
     // Draw ticks
     ctx.strokeStyle = COLORS.rulerLine;
     ctx.fillStyle = COLORS.rulerText;
-    ctx.font = '10px monospace';
+    ctx.font = '9px "SFMono-Regular", Consolas, monospace';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
 
@@ -232,9 +282,45 @@ export class Canvas2DRenderer extends Renderer {
       // Draw time label for major ticks
       if (isMajor) {
         const label = this.formatTime(time);
-        ctx.fillText(label, x + 2, 2);
+        ctx.fillText(label, x + 5, 5);
       }
     }
+
+    ctx.strokeStyle = COLORS.trackBorder;
+    ctx.beginPath();
+    ctx.moveTo(0, height - 0.5);
+    ctx.lineTo(this.width, height - 0.5);
+    ctx.stroke();
+  }
+
+  /**
+   * Draw vertical time guides through the track area.
+   */
+  drawTimeGrid(startTime, endTime, pixelsPerMs, top, bottom) {
+    if (bottom <= top) return;
+    const ctx = this.ctx;
+    const msPerPixel = 1 / pixelsPerMs;
+    let tickInterval = 1000;
+    if (msPerPixel < 10) tickInterval = 100;
+    if (msPerPixel < 1) tickInterval = 10;
+    if (msPerPixel > 100) tickInterval = 10000;
+    if (msPerPixel > 1000) tickInterval = 60000;
+
+    const startTick = Math.floor(startTime / tickInterval) * tickInterval;
+    const endTick = Math.ceil(endTime / tickInterval) * tickInterval;
+
+    ctx.save();
+    ctx.lineWidth = 1;
+    for (let time = startTick; time <= endTick; time += tickInterval) {
+      const x = Math.round((time - startTime) * pixelsPerMs) + 0.5;
+      const isMajor = (time % (tickInterval * 5)) === 0;
+      ctx.strokeStyle = isMajor ? COLORS.gridMajor : COLORS.gridMinor;
+      ctx.beginPath();
+      ctx.moveTo(x, top);
+      ctx.lineTo(x, bottom);
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   /**
@@ -259,7 +345,7 @@ export class Canvas2DRenderer extends Renderer {
    * @param {boolean} alternate
    */
   drawTrackBackground(y, width, height, alternate) {
-    this.ctx.fillStyle = alternate ? COLORS.trackBackground : COLORS.timelineBackground;
+    this.ctx.fillStyle = alternate ? COLORS.trackAlternate : COLORS.trackBackground;
     this.ctx.fillRect(0, y, width, height);
 
     // Draw border
@@ -281,8 +367,8 @@ export class Canvas2DRenderer extends Renderer {
   drawSelectionRect(x, y, width, height) {
     const ctx = this.ctx;
     ctx.save();
-    ctx.fillStyle = 'rgba(74, 158, 255, 0.15)';
-    ctx.strokeStyle = 'rgba(74, 158, 255, 0.6)';
+    ctx.fillStyle = 'rgba(111, 125, 242, 0.11)';
+    ctx.strokeStyle = 'rgba(139, 151, 255, 0.7)';
     ctx.lineWidth = 1;
     ctx.fillRect(x, y, width, height);
     ctx.strokeRect(x, y, width, height);

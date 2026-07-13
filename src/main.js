@@ -72,6 +72,9 @@ class YTPEditor {
     // Subscribe to state changes
     this.state.subscribe((state) => this.onStateChange(state));
 
+    // Paint the complete empty-project state before any saved project is loaded.
+    this.onStateChange(this.state.getState());
+
     console.log('YTP Editor initialized');
     this.updateStatus('Ready - Import media to get started');
     this.loadProject();
@@ -164,6 +167,8 @@ class YTPEditor {
     this.mobileMediaPanelBtn = document.getElementById('mobileMediaPanelBtn');
     this.mobilePropertiesPanelBtn = document.getElementById('mobilePropertiesPanelBtn');
     this.mobileProjectBtn = document.getElementById('mobileProjectBtn');
+    this.helpBtn = document.getElementById('helpBtn');
+    this.projectName = document.getElementById('projectName');
     this.pendingExportCommands = null;
     this.reassociateInput = document.createElement('input');
     this.reassociateInput.type = 'file';
@@ -199,6 +204,9 @@ class YTPEditor {
     this.saveBtn.addEventListener('click', () => this.showSaveModal());
     this.exportBtn.addEventListener('click', () => this.exportVideo());
     this.addTrackBtn.addEventListener('click', () => this.addTrack());
+    if (this.helpBtn) {
+      this.helpBtn.addEventListener('click', () => this.showHelp());
+    }
 
     // Zoom controls
     this.zoomInBtn.addEventListener('click', () => this.zoomIn());
@@ -468,6 +476,12 @@ class YTPEditor {
 
     // Update time display
     this.updateTimeDisplay(state.playhead);
+
+    if (this.projectName) {
+      this.projectName.textContent = state.project && state.project.name
+        ? state.project.name
+        : 'Untitled Project';
+    }
 
     // Update undo/redo buttons
     this.undoBtn.disabled = !this.state.canUndo();
@@ -1234,7 +1248,7 @@ class YTPEditor {
   showHelp() {
     const modal = this.helpModal;
     if (!modal) return;
-    modal.style.display = 'block';
+    modal.style.display = 'flex';
 
     const closeBtn = modal.querySelector('.close-btn');
     closeBtn.onclick = () => modal.style.display = 'none';

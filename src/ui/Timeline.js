@@ -293,14 +293,21 @@ export class Timeline {
     const endTime = pixelsToTime(this.scrollX + visibleWidth, state.zoom);
     const pixelsPerMs = Math.pow(2, state.zoom) * (100 / 1000); // pixels per millisecond
 
-    // Draw time ruler
-    this.renderer.drawTimeRuler(startTime, endTime, pixelsPerMs, RULER_HEIGHT);
-
     // Draw tracks
     state.tracks.forEach((track, index) => {
       const y = RULER_HEIGHT + index * TRACK_HEIGHT;
       this.renderer.drawTrackBackground(y, visibleWidth, TRACK_HEIGHT, index % 2 === 1);
     });
+
+    // Draw a restrained time grid behind clips, then the ruler above it.
+    this.renderer.drawTimeGrid(
+      startTime,
+      endTime,
+      pixelsPerMs,
+      RULER_HEIGHT,
+      Math.min(timelineHeight, visibleHeight)
+    );
+    this.renderer.drawTimeRuler(startTime, endTime, pixelsPerMs, RULER_HEIGHT);
 
     // Draw clips
     const visibleClips = this.getVisibleClips(state, startTime, endTime);
@@ -421,9 +428,11 @@ export class Timeline {
         y + 4,
         width - 8,
         height - 8,
-        'rgba(74, 158, 255, 0.5)'
+        COLORS.waveform
       );
     }
+
+    this.renderer.drawClipLabel(clip, x, y, width, height, selected);
   }
 
   /**
@@ -1056,7 +1065,7 @@ export class Timeline {
       trackId: trackId,
       start: Math.max(0, time),
       duration: media.duration,
-      color: '#4a9eff',
+      color: '#586fc9',
     }));
   }
 

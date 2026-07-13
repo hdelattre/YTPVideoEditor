@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>YTP Video Editor</title>
+    <title>YTP Editor</title>
     <link rel="stylesheet" href="styles/main.css">
     <link rel="stylesheet" href="styles/timeline.css">
     <link rel="stylesheet" href="styles/editor.css">
@@ -13,17 +13,46 @@
     <div class="editor-container">
         <!-- Header -->
         <header class="editor-header">
-            <h1>YTP Video Editor</h1>
+            <div class="app-identity" aria-label="YTP Editor">
+                <div class="app-mark" aria-hidden="true">
+                    <svg viewBox="0 0 24 24"><path d="M7 6.5v11l10-5.5L7 6.5Z"/><path d="M5 4h14M5 20h14"/></svg>
+                </div>
+                <div class="app-titles">
+                    <h1>YTP Editor</h1>
+                    <span id="projectName" class="project-name">Untitled Project</span>
+                </div>
+            </div>
             <div class="header-controls">
-                <button id="undoBtn" class="btn btn-icon" title="Undo (Ctrl+Z)" disabled>↶</button>
-                <button id="redoBtn" class="btn btn-icon" title="Redo (Ctrl+Shift+Z)" disabled>↷</button>
+                <div class="control-group" aria-label="History controls">
+                    <button id="undoBtn" class="btn btn-icon" title="Undo (Ctrl+Z)" aria-label="Undo" disabled>
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7 4 12l5 5"/><path d="M5 12h8a6 6 0 0 1 6 6"/></svg>
+                    </button>
+                    <button id="redoBtn" class="btn btn-icon" title="Redo (Ctrl+Shift+Z)" aria-label="Redo" disabled>
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 7 5 5-5 5"/><path d="M19 12h-8a6 6 0 0 0-6 6"/></svg>
+                    </button>
+                </div>
                 <span class="separator"></span>
-                <button type="button" id="mobileMediaPanelBtn" class="btn btn-icon mobile-only" title="Media library" aria-label="Media library">📁</button>
-                <button type="button" id="mobilePropertiesPanelBtn" class="btn btn-icon mobile-only" title="Properties" aria-label="Properties">⚙️</button>
-                <button type="button" id="mobileProjectBtn" class="btn btn-icon mobile-only" title="Project" aria-label="Project">☰</button>
-                <button id="newProjectBtn" class="btn btn-secondary">New Project</button>
-                <button id="saveBtn" class="btn btn-secondary">Save Project</button>
-                <button id="exportBtn" class="btn btn-primary" title="Export video" aria-label="Export video" disabled>Export Video</button>
+                <button type="button" id="mobileMediaPanelBtn" class="btn btn-icon mobile-only" title="Media library" aria-label="Media library">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 6.5h6l2 2h9v10h-17v-12Z"/></svg>
+                </button>
+                <button type="button" id="mobilePropertiesPanelBtn" class="btn btn-icon mobile-only" title="Properties" aria-label="Properties">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10M14 4v6M6 14v6"/></svg>
+                </button>
+                <button type="button" id="mobileProjectBtn" class="btn btn-icon mobile-only" title="Project" aria-label="Project">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M5 12h14M5 17h14"/></svg>
+                </button>
+                <button id="helpBtn" class="btn btn-icon desktop-only" title="Keyboard shortcuts (F1)" aria-label="Keyboard shortcuts">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M9.8 9.3a2.4 2.4 0 1 1 3.3 2.2c-.8.4-1.1.9-1.1 1.7v.3M12 17h.01"/></svg>
+                </button>
+                <button id="newProjectBtn" class="btn btn-secondary">New</button>
+                <button id="saveBtn" class="btn btn-secondary">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4.5h12l2 2v13H5v-15Z"/><path d="M8 4.5v6h8v-6M8.5 19v-5h7v5"/></svg>
+                    <span>Save</span>
+                </button>
+                <button id="exportBtn" class="btn btn-primary" title="Export video" aria-label="Export video" disabled>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M8 11l4 4 4-4M5 19h14"/></svg>
+                    <span>Export</span>
+                </button>
             </div>
         </header>
 
@@ -33,11 +62,18 @@
         <div class="editor-main">
             <!-- Left sidebar - Media panel -->
             <aside class="media-panel">
-                <h2>Media Library</h2>
+                <div class="panel-heading">
+                    <div>
+                        <span class="panel-kicker">Project</span>
+                        <h2>Media</h2>
+                    </div>
+                </div>
                 <div class="media-import">
                     <button id="importBtn" class="btn btn-secondary">
-                        <span>📁 Import Media</span>
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 7h6l2 2h9v10h-17V7Z"/><path d="M12 12v5M9.5 14.5H14.5"/></svg>
+                        <span>Import media</span>
                     </button>
+                    <p class="panel-hint">Drag clips to the timeline or double-click to add.</p>
                     <input type="file" id="fileInput" accept="video/*,audio/*" multiple hidden>
                 </div>
                 <div id="mediaList" class="media-list"></div>
@@ -48,28 +84,53 @@
                 <!-- Preview area -->
                 <section class="preview-section">
                     <div class="preview-container">
-                        <canvas id="previewCanvas"></canvas>
+                        <div class="preview-stage">
+                            <canvas id="previewCanvas"></canvas>
+                        </div>
                     </div>
                     <div class="preview-controls">
-                        <button id="playBtn" class="btn btn-icon">▶</button>
-                        <button id="pauseBtn" class="btn btn-icon" style="display:none;">⏸</button>
+                        <div class="transport-controls">
+                            <button id="playBtn" class="btn btn-icon transport-button" title="Play (Space)" aria-label="Play">
+                                <svg viewBox="0 0 24 24" aria-hidden="true" class="icon-fill"><path d="m9 6 9 6-9 6V6Z"/></svg>
+                            </button>
+                            <button id="pauseBtn" class="btn btn-icon transport-button" title="Pause (Space)" aria-label="Pause" style="display:none;">
+                                <svg viewBox="0 0 24 24" aria-hidden="true" class="icon-fill"><path d="M8 6h3v12H8zM14 6h3v12h-3z"/></svg>
+                            </button>
+                        </div>
                         <span id="timeDisplay" class="time-display">00:00.00</span>
-                        <input type="range" id="volumeSlider" min="0" max="100" value="100" class="volume-slider">
-                        <span class="volume-label">🔊</span>
+                        <div class="preview-volume">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 10v4h3l4 3V7l-4 3H5Z"/><path d="M15 9.5a4 4 0 0 1 0 5M17.5 7a7 7 0 0 1 0 10"/></svg>
+                            <input type="range" id="volumeSlider" min="0" max="100" value="100" class="volume-slider" aria-label="Preview volume">
+                        </div>
                     </div>
                 </section>
 
                 <!-- Timeline area -->
                 <section class="timeline-section">
                     <div class="timeline-toolbar">
-                        <button id="addTrackBtn" class="btn btn-sm">+ Track</button>
-                        <button type="button" id="splitBtn" class="btn btn-sm mobile-only" title="Split clip at playhead">Split</button>
-                        <button type="button" id="deleteBtn" class="btn btn-sm mobile-only" title="Delete selection">Delete</button>
+                        <span class="toolbar-title">Timeline</span>
                         <span class="separator"></span>
-                        <span class="zoom-label">Zoom:</span>
-                        <button id="zoomOutBtn" class="btn btn-icon btn-sm">-</button>
+                        <button id="addTrackBtn" class="btn btn-sm">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h14M5 16h8M17 13v6M14 16h6"/></svg>
+                            <span>Track</span>
+                        </button>
+                        <button type="button" id="splitBtn" class="btn btn-sm" title="Split clip at playhead (S)">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="7" cy="7" r="2.5"/><circle cx="7" cy="17" r="2.5"/><path d="m9 8.5 10 7M9 15.5l10-7"/></svg>
+                            <span>Split</span>
+                        </button>
+                        <button type="button" id="deleteBtn" class="btn btn-sm" title="Delete selection (Delete)">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M9 7V4.5h6V7M7.5 7l.8 12h7.4l.8-12M10 10v6M14 10v6"/></svg>
+                            <span>Delete</span>
+                        </button>
+                        <span class="separator"></span>
+                        <span class="zoom-label">Zoom</span>
+                        <button id="zoomOutBtn" class="btn btn-icon btn-sm" title="Zoom out" aria-label="Zoom out">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 12h10"/></svg>
+                        </button>
                         <span id="zoomLevel" class="zoom-level">100%</span>
-                        <button id="zoomInBtn" class="btn btn-icon btn-sm">+</button>
+                        <button id="zoomInBtn" class="btn btn-icon btn-sm" title="Zoom in" aria-label="Zoom in">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 7v10M7 12h10"/></svg>
+                        </button>
                     </div>
                     <div id="timelineContainer" class="timeline-container"></div>
                     <input type="range" id="timelineScroll" class="timeline-scroll" min="0" max="0" value="0" step="1"
@@ -80,15 +141,18 @@
             <!-- Right sidebar - Properties panel -->
             <aside class="properties-panel">
                 <div id="propertiesContent" class="properties-content">
-                    <p class="empty-message">Select a clip to edit properties</p>
+                    <div class="empty-state">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10M14 4v6M6 14v6"/></svg>
+                        <p>Select a clip to edit its properties.</p>
+                    </div>
                 </div>
             </aside>
         </div>
 
         <!-- Status bar -->
         <footer class="status-bar">
-            <span id="statusText">Ready</span>
-            <span id="fps">60 FPS</span>
+            <span id="statusText" class="status-message">Ready</span>
+            <span id="fps" class="status-performance">60 FPS</span>
         </footer>
         <div id="exportCommandBar" class="export-command-bar" hidden>
             <span class="export-command-label">FFmpeg</span>

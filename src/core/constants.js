@@ -3,8 +3,8 @@
  */
 
 // Timeline layout constants
-export const TRACK_HEIGHT = 60; // pixels
-export const RULER_HEIGHT = 30; // pixels
+export const TRACK_HEIGHT = 56; // pixels
+export const RULER_HEIGHT = 28; // pixels
 export const PIXELS_PER_SECOND_BASE = 100; // At zoom level 0
 export const MIN_CLIP_WIDTH = 10; // Minimum clip width in pixels
 export const PLAYHEAD_WIDTH = 2; // pixels
@@ -22,19 +22,22 @@ export const MAX_CACHED_FRAMES = 100;
 
 // Colors
 export const COLORS = {
-  background: '#1a1a1a',
-  timelineBackground: '#242424',
-  trackBackground: '#2a2a2a',
-  trackBorder: '#3a3a3a',
-  clipDefault: '#4a9eff',
-  clipSelected: '#6ab7ff',
-  clipAudio: '#ff9d4a',
-  clipText: '#ffffff',
-  playhead: '#ff4a4a',
-  waveform: '#4a9eff',
-  waveformBackground: 'rgba(74, 158, 255, 0.1)',
-  rulerText: '#999999',
-  rulerLine: '#3a3a3a',
+  background: '#101216',
+  timelineBackground: '#17191e',
+  trackBackground: '#15171b',
+  trackAlternate: '#181a1f',
+  trackBorder: '#292c33',
+  gridMinor: 'rgba(255, 255, 255, 0.025)',
+  gridMajor: 'rgba(255, 255, 255, 0.065)',
+  clipDefault: '#586fc9',
+  clipSelected: '#657be0',
+  clipAudio: '#c88951',
+  clipText: '#f7f8fa',
+  playhead: '#ef7474',
+  waveform: 'rgba(255, 255, 255, 0.32)',
+  waveformBackground: 'rgba(255, 255, 255, 0.05)',
+  rulerText: '#7f848e',
+  rulerLine: '#3a3d45',
 };
 
 // Keyboard shortcuts
