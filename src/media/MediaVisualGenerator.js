@@ -162,21 +162,26 @@ function waitForDecodedSeek(video, targetTime, shouldContinue = () => true, time
   return new Promise((resolve, reject) => {
     let timer = null;
     let poller = null;
-    const events = ['seeked', 'loadeddata', 'canplay', 'progress', 'timeupdate'];
+    const startedAt = Date.now();
     const cleanup = () => {
-      events.forEach(eventName => video.removeEventListener(eventName, checkReady));
+      video.removeEventListener('seeked', checkReady);
       video.removeEventListener('error', onError);
       if (timer !== null) clearTimeout(timer);
       if (poller !== null) clearInterval(poller);
     };
-    const checkReady = () => {
+    const checkReady = (event) => {
       if (!shouldContinue()) {
         cleanup();
         resolve(false);
         return;
       }
       const isAtTarget = Math.abs(video.currentTime - targetTime) <= 0.5;
-      if (video.readyState < 2 || video.seeking === true || !isAtTarget) return;
+      const confirmedByEvent = event && event.type === 'seeked';
+      const settledFallback = Date.now() - startedAt >= 200;
+      if (video.readyState < 2
+          || video.seeking === true
+          || !isAtTarget
+          || (!confirmedByEvent && !settledFallback)) return;
       cleanup();
       resolve(true);
     };
@@ -184,7 +189,7 @@ function waitForDecodedSeek(video, targetTime, shouldContinue = () => true, time
       cleanup();
       reject(new Error('Video frame data failed to decode'));
     };
-    events.forEach(eventName => video.addEventListener(eventName, checkReady));
+    video.addEventListener('seeked', checkReady);
     video.addEventListener('error', onError, { once: true });
     poller = setInterval(checkReady, 50);
     timer = setTimeout(() => {

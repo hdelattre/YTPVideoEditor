@@ -219,33 +219,149 @@
   }
 
   .timeline-container {
-    --track-header-width: 124px;
+    --track-header-width: 60px;
+  }
+
+  .timeline-track-ruler {
+    justify-content: center;
+    padding: 0 4px;
   }
 
   .timeline-track-header {
-    gap: 3px;
-    padding: 3px 7px;
+    justify-content: center;
+    gap: 0;
+    padding: 4px 5px;
     touch-action: pan-y;
     user-select: none;
     -webkit-user-select: none;
   }
 
+  .timeline-track-header.is-hidden {
+    opacity: 1;
+  }
+
+  .timeline-track-header.is-hidden .timeline-track-identity {
+    opacity: 0.52;
+  }
+
+  .timeline-track-header.is-controls-open {
+    z-index: 20;
+    background: var(--color-bg-light);
+  }
+
+  .timeline-track-identity {
+    position: relative;
+    z-index: 2;
+    width: 100%;
+    display: grid;
+    grid-template:
+      "name" auto
+      "status" auto /
+      minmax(0, 1fr);
+    gap: 3px;
+    pointer-events: none;
+  }
+
+  .timeline-track-headers,
+  .timeline-track-header {
+    overflow: visible;
+  }
+
+  .timeline-track-name {
+    grid-area: name;
+    font-size: 9px;
+    line-height: 1.15;
+  }
+
+  .timeline-track-status {
+    grid-area: status;
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    min-width: 0;
+  }
+
+  .timeline-track-status-icon {
+    width: 11px;
+    height: 11px;
+    color: #555b65;
+  }
+
+  .timeline-track-status-icon.is-active {
+    color: #8fb6d0;
+  }
+
+  .timeline-track-status-icon:first-child:not(.is-active) {
+    color: var(--color-danger);
+  }
+
+  .timeline-track-status-icon svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.75;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .timeline-track-trigger {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    display: block;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    cursor: pointer;
+  }
+
+  .timeline-track-trigger:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: -2px;
+  }
+
   .timeline-track-controls {
+    position: absolute;
+    top: 50%;
+    left: calc(100% + 6px);
+    z-index: 30;
+    display: none;
+    align-items: center;
     gap: 4px;
+    padding: 5px;
+    background: #202329;
+    border: 1px solid var(--color-border-strong);
+    border-radius: 7px;
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.42);
+    transform: translateY(-50%);
+    touch-action: manipulation;
+  }
+
+  .timeline-track-header.is-controls-open .timeline-track-controls {
+    display: flex;
   }
 
   .timeline-track-control {
-    width: 32px;
-    height: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    flex: 0 0 44px;
   }
 
   .timeline-track-control svg {
-    width: 15px;
-    height: 15px;
+    width: 17px;
+    height: 17px;
   }
 
   .timeline-track-delete {
-    display: none;
+    color: var(--color-danger);
   }
 
   .zoom-label {

@@ -67,6 +67,20 @@ export class Timeline {
     this.isPointerOverTimeline = false;
     this.lastRenderedPlayhead = null;
     this.lastTrackHeaderSignature = null;
+    this.openTrackControlsId = null;
+
+    this.onTrackTrayPointerDown = (event) => {
+      if (!this.openTrackControlsId) return;
+      const target = event.target instanceof Element ? event.target : null;
+      if (!target || !target.closest('.timeline-track-header')) this.closeTrackControlTray();
+    };
+    this.onTrackTrayKeyDown = (event) => {
+      if (event.key === 'Escape') this.closeTrackControlTray();
+    };
+    this.onTrackTrayScroll = () => this.closeTrackControlTray();
+    document.addEventListener('pointerdown', this.onTrackTrayPointerDown);
+    document.addEventListener('keydown', this.onTrackTrayKeyDown);
+    this.container.addEventListener('scroll', this.onTrackTrayScroll, { passive: true });
 
     this.setupCanvas();
     this.setupEventListeners();
@@ -210,6 +224,7 @@ export class Timeline {
    * Resize canvas to fit container
    */
   resizeCanvas() {
+    this.closeTrackControlTray();
     const state = this.state.getState();
     const viewportWidth = this.container.clientWidth;
     const viewportHeight = this.container.clientHeight;
@@ -233,6 +248,28 @@ export class Timeline {
     const value = getComputedStyle(this.container).getPropertyValue('--track-header-width');
     const parsed = parseFloat(value);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : TRACK_HEADER_WIDTH;
+  }
+
+  /** Close the mobile track-control tray without rebuilding the timeline. */
+  closeTrackControlTray() {
+    if (!this.openTrackControlsId) return;
+    this.openTrackControlsId = null;
+    this.trackHeaders.querySelectorAll('.timeline-track-header.is-controls-open')
+      .forEach(row => row.classList.remove('is-controls-open'));
+    this.trackHeaders.querySelectorAll('.timeline-track-trigger[aria-expanded="true"]')
+      .forEach(button => button.setAttribute('aria-expanded', 'false'));
+  }
+
+  /** Toggle the anchored controls for one compact track header. */
+  toggleTrackControlTray(row, trackId) {
+    const normalizedTrackId = String(trackId);
+    const shouldOpen = this.openTrackControlsId !== normalizedTrackId;
+    this.closeTrackControlTray();
+    if (!shouldOpen) return;
+    if (!row) return;
+    this.openTrackControlsId = normalizedTrackId;
+    row.classList.add('is-controls-open');
+    row.querySelector('.timeline-track-trigger')?.setAttribute('aria-expanded', 'true');
   }
 
   /** Return whether a clip needs distinct video and audio rails. */
@@ -595,22 +632,12 @@ export class Timeline {
     ruler.textContent = 'Tracks';
     this.trackHeaders.appendChild(ruler);
 
+    let restoredOpenTray = false;
     trackLayout.forEach(({ track, index, height }) => {
+      const displayName = track.name || `Track ${index + 1}`;
       const row = document.createElement('div');
       row.className = `timeline-track-header${track.visible === false ? ' is-hidden' : ''}${track.locked ? ' is-locked' : ''}`;
       row.style.height = `${height}px`;
-      if (state.tracks.length > 1) {
-        this.setupTrackLongPress(row, track);
-      }
-
-      const identity = document.createElement('div');
-      identity.className = 'timeline-track-identity';
-      identity.innerHTML = '<span class="timeline-track-name"></span>';
-      identity.querySelector('.timeline-track-name').textContent = track.name || `Track ${index + 1}`;
-      row.appendChild(identity);
-
-      const controls = document.createElement('div');
-      controls.className = 'timeline-track-controls';
       const controlConfigs = [
         {
           key: 'visible',
@@ -638,15 +665,55 @@ export class Timeline {
         },
       ];
 
+      const identity = document.createElement('div');
+      identity.className = 'timeline-track-identity';
+      const name = document.createElement('span');
+      name.className = 'timeline-track-name';
+      name.textContent = displayName;
+      identity.appendChild(name);
+
+      const status = document.createElement('span');
+      status.className = 'timeline-track-status';
+      status.setAttribute('aria-hidden', 'true');
+      controlConfigs.forEach((config) => {
+        const indicator = document.createElement('span');
+        indicator.className = `timeline-track-status-icon${config.active ? ' is-active' : ''}`;
+        indicator.innerHTML = config.icon;
+        status.appendChild(indicator);
+      });
+      identity.appendChild(status);
+
+      const controlsId = `timeline-track-controls-${track.id}`;
+      const trackTrigger = document.createElement('button');
+      trackTrigger.type = 'button';
+      trackTrigger.className = 'timeline-track-trigger';
+      trackTrigger.setAttribute('aria-label', `Open controls for ${displayName}`);
+      trackTrigger.setAttribute('aria-controls', controlsId);
+      trackTrigger.setAttribute('aria-expanded', 'false');
+      trackTrigger.setAttribute('aria-haspopup', 'true');
+      trackTrigger.addEventListener('click', (event) => {
+        event.stopPropagation();
+        this.toggleTrackControlTray(row, track.id);
+      });
+      row.appendChild(identity);
+      row.appendChild(trackTrigger);
+
+      const controls = document.createElement('div');
+      controls.id = controlsId;
+      controls.className = 'timeline-track-controls';
+      controls.setAttribute('role', 'group');
+      controls.setAttribute('aria-label', `Controls for ${displayName}`);
+
       controlConfigs.forEach((config) => {
         const button = document.createElement('button');
         button.type = 'button';
         button.className = `timeline-track-control${config.active ? ' is-active' : ''}`;
         button.innerHTML = config.icon;
         button.title = config.title;
-        button.setAttribute('aria-label', `${config.title}: ${track.name}`);
+        button.setAttribute('aria-label', `${config.title}: ${displayName}`);
         button.setAttribute('aria-pressed', String(config.active));
-        button.addEventListener('click', () => {
+        button.addEventListener('click', (event) => {
+          event.stopPropagation();
           const currentValue = config.key === 'visible'
             ? track.visible !== false
             : Boolean(track[config.key]);
@@ -660,65 +727,24 @@ export class Timeline {
       deleteButton.className = 'timeline-track-control timeline-track-delete';
       deleteButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M9 7V4.5h6V7M7.5 7l.8 12h7.4l.8-12M10 10v6M14 10v6"/></svg>';
       deleteButton.disabled = state.tracks.length <= 1;
-      deleteButton.title = state.tracks.length <= 1 ? 'At least one track is required' : `Delete ${track.name}`;
+      deleteButton.title = state.tracks.length <= 1 ? 'At least one track is required' : `Delete ${displayName}`;
       deleteButton.setAttribute('aria-label', deleteButton.title);
-      deleteButton.addEventListener('click', () => this.requestTrackDeletion(track));
+      deleteButton.addEventListener('click', (event) => {
+        event.stopPropagation();
+        this.closeTrackControlTray();
+        this.requestTrackDeletion(track);
+      });
       controls.appendChild(deleteButton);
 
       row.appendChild(controls);
+      if (this.openTrackControlsId === String(track.id)) {
+        row.classList.add('is-controls-open');
+        trackTrigger.setAttribute('aria-expanded', 'true');
+        restoredOpenTray = true;
+      }
       this.trackHeaders.appendChild(row);
     });
-  }
-
-  /**
-   * On touch layouts, a deliberate hold on the track header opens deletion confirmation.
-   * Moving the pointer cancels the hold so vertical scrolling remains natural.
-   * @param {HTMLElement} row
-   * @param {import('../core/types.js').Track} track
-   */
-  setupTrackLongPress(row, track) {
-    const isCoarsePointer = typeof window !== 'undefined'
-      && typeof window.matchMedia === 'function'
-      && window.matchMedia('(pointer: coarse)').matches;
-    if (!isCoarsePointer) return;
-
-    row.tabIndex = 0;
-    row.title = `Press and hold to delete ${track.name}`;
-    row.setAttribute('aria-label', `${track.name}. Press and hold to delete.`);
-
-    let timer = null;
-    let startX = 0;
-    let startY = 0;
-    const cancel = () => {
-      if (timer !== null) {
-        clearTimeout(timer);
-        timer = null;
-      }
-      row.classList.remove('is-long-pressing');
-    };
-
-    row.addEventListener('pointerdown', (event) => {
-      if (event.pointerType === 'mouse' || event.target.closest('button')) return;
-      startX = event.clientX;
-      startY = event.clientY;
-      row.classList.add('is-long-pressing');
-      timer = setTimeout(() => {
-        timer = null;
-        row.classList.remove('is-long-pressing');
-        if (navigator.vibrate) navigator.vibrate(20);
-        this.requestTrackDeletion(track);
-      }, 650);
-    });
-
-    row.addEventListener('pointermove', (event) => {
-      if (timer === null) return;
-      if (Math.hypot(event.clientX - startX, event.clientY - startY) > 10) {
-        cancel();
-      }
-    });
-    row.addEventListener('pointerup', cancel);
-    row.addEventListener('pointercancel', cancel);
-    row.addEventListener('pointerleave', cancel);
+    if (this.openTrackControlsId && !restoredOpenTray) this.openTrackControlsId = null;
   }
 
   /**
@@ -1281,10 +1307,7 @@ export class Timeline {
     const state = this.state.getState();
     if (state.tracks.length <= 1) return;
     const clipCount = state.clips.filter(clip => clip.trackId === track.id).length;
-    const isCoarsePointer = typeof window !== 'undefined'
-      && typeof window.matchMedia === 'function'
-      && window.matchMedia('(pointer: coarse)').matches;
-    if (clipCount === 0 && !isCoarsePointer) {
+    if (clipCount === 0) {
       this.state.dispatch(actions.removeTrack(track.id));
       return;
     }
@@ -1613,5 +1636,8 @@ export class Timeline {
     if (this.unsubscribe) {
       this.unsubscribe();
     }
+    document.removeEventListener('pointerdown', this.onTrackTrayPointerDown);
+    document.removeEventListener('keydown', this.onTrackTrayKeyDown);
+    this.container.removeEventListener('scroll', this.onTrackTrayScroll);
   }
 }
