@@ -233,10 +233,22 @@ export class MediaManager {
       const header = document.createElement('div');
       header.className = 'media-item-header';
 
+      const typeIcon = document.createElement('span');
+      const isAudio = Boolean(media.type && media.type.startsWith('audio/'));
+      typeIcon.className = `media-item-type ${isAudio ? 'is-audio' : 'is-video'}`;
+      typeIcon.innerHTML = isAudio
+        ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h2l1.5-5 3 10 2.5-8 2 6 1-3h2"/></svg>'
+        : '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="6" width="16" height="12" rx="2"/><path d="m10 9 5 3-5 3V9Z"/></svg>';
+      header.appendChild(typeIcon);
+
+      const details = document.createElement('div');
+      details.className = 'media-item-details';
+      header.appendChild(details);
+
       const name = document.createElement('div');
       name.className = 'media-item-name';
       name.textContent = media.name;
-      header.appendChild(name);
+      details.appendChild(name);
 
       if (isMissing) {
         const badge = document.createElement('span');
@@ -260,11 +272,16 @@ export class MediaManager {
       const info = document.createElement('div');
       info.className = 'media-item-info';
       const durationSec = Math.round(media.duration / 1000);
+      const durationMinutes = Math.floor(durationSec / 60);
+      const durationRemainder = String(durationSec % 60).padStart(2, '0');
       const sizeMB = (media.size / 1024 / 1024).toFixed(2);
-      info.textContent = `${durationSec}s · ${media.width}x${media.height} · ${sizeMB}MB`;
+      const mediaKind = isAudio
+        ? 'Audio'
+        : (media.width && media.height ? `${media.width}×${media.height}` : 'Video');
+      info.textContent = `${durationMinutes}:${durationRemainder} · ${mediaKind} · ${sizeMB} MB`;
+      details.appendChild(info);
 
       item.appendChild(header);
-      item.appendChild(info);
 
       // Double-click to add to timeline
       if (!isMissing) {

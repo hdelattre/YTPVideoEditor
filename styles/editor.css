@@ -33,6 +33,38 @@
   gap: var(--spacing-xs);
 }
 
+.media-item-type {
+  width: 25px;
+  height: 25px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  margin-right: 2px;
+  color: #9399a6;
+  background: #252830;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 4px;
+}
+
+.media-item-type.is-audio {
+  color: #d2a36f;
+}
+
+.media-item-type svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.media-item-type.is-video svg path {
+  fill: currentColor;
+  stroke: none;
+}
+
 .media-item-name {
   font-size: 12px;
   font-weight: 500;
@@ -42,9 +74,67 @@
   text-overflow: ellipsis;
 }
 
+.media-item-details {
+  flex: 1;
+  min-width: 0;
+}
+
 .media-item-info {
   font-size: 10px;
   color: var(--color-text-muted);
+}
+
+.property-accordion {
+  margin: 0 -14px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.property-accordion:first-of-type {
+  border-top: 1px solid var(--color-border);
+}
+
+.property-accordion > summary {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  color: var(--color-text-soft);
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+}
+
+.property-accordion > summary::-webkit-details-marker {
+  display: none;
+}
+
+.property-accordion > summary::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  margin-right: 9px;
+  border-right: 1.5px solid var(--color-text-muted);
+  border-bottom: 1.5px solid var(--color-text-muted);
+  transform: rotate(-45deg);
+  transition: transform 120ms ease;
+}
+
+.property-accordion[open] > summary::before {
+  transform: rotate(45deg) translate(-1px, -1px);
+}
+
+.property-accordion > summary:hover {
+  color: var(--color-text);
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.property-accordion-body {
+  padding: 13px 14px 2px;
+  background: rgba(0, 0, 0, 0.08);
 }
 
 .media-item-missing {

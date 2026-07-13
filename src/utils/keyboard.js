@@ -159,9 +159,12 @@ export class KeyboardManager {
   splitClip() {
     const state = this.state.getState();
     const selectedClip = state.clips.find(c => c.id === state.selectedClipId);
+    const selectedTrack = selectedClip
+      ? state.tracks.find(track => track.id === selectedClip.trackId)
+      : null;
     const playhead = state.playhead;
 
-    if (selectedClip && playhead >= selectedClip.start &&
+    if (selectedClip && !(selectedTrack && selectedTrack.locked) && playhead >= selectedClip.start &&
         playhead < selectedClip.start + selectedClip.duration) {
       const splitPoint = playhead - selectedClip.start;
       this.state.dispatch(actions.splitClip(selectedClip.id, splitPoint));
@@ -171,10 +174,19 @@ export class KeyboardManager {
   deleteClip() {
     const state = this.state.getState();
     const selectedIds = Array.isArray(state.selectedClipIds) ? state.selectedClipIds : [];
-    if (selectedIds.length > 0) {
-      this.state.dispatch(actions.removeClips(selectedIds));
+    const unlockedIds = selectedIds.filter((id) => {
+      const clip = state.clips.find(item => item.id === id);
+      const track = clip ? state.tracks.find(item => item.id === clip.trackId) : null;
+      return !track || !track.locked;
+    });
+    if (unlockedIds.length > 0) {
+      this.state.dispatch(actions.removeClips(unlockedIds));
     } else if (state.selectedClipId) {
-      this.state.dispatch(actions.removeClip(state.selectedClipId));
+      const clip = state.clips.find(item => item.id === state.selectedClipId);
+      const track = clip ? state.tracks.find(item => item.id === clip.trackId) : null;
+      if (!track || !track.locked) {
+        this.state.dispatch(actions.removeClip(state.selectedClipId));
+      }
     }
   }
 

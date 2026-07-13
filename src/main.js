@@ -7,7 +7,7 @@ import { StateManager } from './core/state.js';
 import { KeyboardManager } from './utils/keyboard.js';
 import { Timeline } from './ui/Timeline.js';
 import * as actions from './core/actions.js';
-import { formatTime } from './utils/time.js';
+import { formatTime, getTimelineDuration } from './utils/time.js';
 import { setupRangeVisuals } from './ui/rangeVisuals.js';
 import { PropertiesPanel } from './ui/properties.js';
 import { buildFfmpegExportCommand } from './export/ffmpeg.js';
@@ -158,6 +158,7 @@ class YTPEditor {
     this.zoomInBtn = document.getElementById('zoomInBtn');
     this.zoomOutBtn = document.getElementById('zoomOutBtn');
     this.zoomLevelLabel = document.getElementById('zoomLevel');
+    this.revealPlayheadBtn = document.getElementById('revealPlayheadBtn');
     this.volumeSlider = document.getElementById('volumeSlider');
     this.timeDisplay = document.getElementById('timeDisplay');
     this.statusText = document.getElementById('statusText');
@@ -169,6 +170,7 @@ class YTPEditor {
     this.mobileProjectBtn = document.getElementById('mobileProjectBtn');
     this.helpBtn = document.getElementById('helpBtn');
     this.projectName = document.getElementById('projectName');
+    this.previewResizeHandle = document.getElementById('previewResizeHandle');
     this.pendingExportCommands = null;
     this.reassociateInput = document.createElement('input');
     this.reassociateInput.type = 'file';
@@ -211,6 +213,14 @@ class YTPEditor {
     // Zoom controls
     this.zoomInBtn.addEventListener('click', () => this.zoomIn());
     this.zoomOutBtn.addEventListener('click', () => this.zoomOut());
+    if (this.revealPlayheadBtn) {
+      this.revealPlayheadBtn.addEventListener('click', () => {
+        this.timeline.scrollToTime(this.state.getState().playhead);
+        this.timeline.render(this.state.getState());
+      });
+    }
+
+    this.setupPreviewResizer();
 
     if (this.splitBtn) {
       this.splitBtn.addEventListener('click', () => this.keyboard.splitClip());
@@ -494,14 +504,38 @@ class YTPEditor {
     // Update play/pause buttons
     if (state.isPlaying) {
       this.playBtn.style.display = 'none';
-      this.pauseBtn.style.display = 'inline-block';
+      this.pauseBtn.style.display = 'inline-flex';
     } else {
-      this.playBtn.style.display = 'inline-block';
+      this.playBtn.style.display = 'inline-flex';
       this.pauseBtn.style.display = 'none';
     }
 
     // Enable export if there are clips
     this.exportBtn.disabled = state.clips.length === 0;
+
+    const selectedIds = Array.isArray(state.selectedClipIds) && state.selectedClipIds.length > 0
+      ? state.selectedClipIds
+      : (state.selectedClipId ? [state.selectedClipId] : []);
+    const selectedClip = selectedIds.length === 1
+      ? state.clips.find(clip => clip.id === selectedIds[0])
+      : null;
+    const selectedTrack = selectedClip
+      ? state.tracks.find(track => track.id === selectedClip.trackId)
+      : null;
+    const hasLockedSelection = selectedIds.some((id) => {
+      const clip = state.clips.find(item => item.id === id);
+      const track = clip ? state.tracks.find(item => item.id === clip.trackId) : null;
+      return Boolean(track && track.locked);
+    });
+    if (this.deleteBtn) {
+      this.deleteBtn.disabled = selectedIds.length === 0 || hasLockedSelection;
+    }
+    if (this.splitBtn) {
+      this.splitBtn.disabled = !selectedClip
+        || Boolean(selectedTrack && selectedTrack.locked)
+        || state.playhead <= selectedClip.start
+        || state.playhead >= selectedClip.start + selectedClip.duration;
+    }
 
     // Update media library UI
     this.mediaManager.renderMediaLibrary(state);
@@ -686,9 +720,8 @@ class YTPEditor {
    * @param {number} timeMs
    */
   updateTimeDisplay(timeMs) {
-    const seconds = (timeMs / 1000).toFixed(2);
     if (this.timeDisplay) {
-      this.timeDisplay.textContent = `${formatTime(timeMs)} (${seconds}s)`;
+      this.timeDisplay.textContent = formatTime(timeMs);
     }
   }
 
@@ -699,6 +732,15 @@ class YTPEditor {
     const state = this.state.getState();
 
     if (state.isPlaying) return;
+
+    const duration = getTimelineDuration(state.clips);
+    if (duration <= 0) {
+      this.updateStatus('Add a clip to the timeline before playing');
+      return;
+    }
+    if (state.playhead >= duration) {
+      this.state.dispatch(actions.setPlayhead(0), false);
+    }
 
     this.ensureAudioContext();
     this.state.dispatch(actions.setPlaying(true), false);
@@ -774,6 +816,15 @@ class YTPEditor {
 
     const elapsed = Date.now() - this.playbackStartTime;
     const newPlayhead = this.playbackStartPosition + elapsed;
+    const duration = getTimelineDuration(state.clips);
+
+    if (duration <= 0 || newPlayhead >= duration) {
+      this.isPlayheadUpdateFromPlayback = true;
+      this.state.dispatch(actions.setPlayhead(Math.max(0, duration)), false);
+      this.state.dispatch(actions.setPlaying(false), false);
+      this.isPlaybackLoopActive = false;
+      return;
+    }
 
     this.isPlayheadUpdateFromPlayback = true;
     this.state.dispatch(actions.setPlayhead(newPlayhead), false);
@@ -1023,6 +1074,11 @@ class YTPEditor {
    */
   applyLoadedProject(json, statusMessage) {
     this.state.loadFromJSON(json);
+    const loadedState = this.state.getState();
+    const duration = getTimelineDuration(loadedState.clips);
+    if (loadedState.playhead > duration) {
+      this.state.dispatch(actions.setPlayhead(Math.max(0, duration)), false);
+    }
     this.clearMediaCaches();
     this.mediaManager.renderMediaLibrary(this.state.getState());
     this.schedulePreviewRender();
@@ -1280,8 +1336,13 @@ class YTPEditor {
     this.previewCtx.fillRect(0, 0, width, height);
 
     // Find active clips at current playhead
+    const getTrackForClip = (clip) => state.tracks.find(track => track.id === clip.trackId) || null;
     const activeClips = state.clips
-      .filter(clip => playhead >= clip.start && playhead < clip.start + clip.duration);
+      .filter(clip => playhead >= clip.start && playhead < clip.start + clip.duration)
+      .filter((clip) => {
+        const track = getTrackForClip(clip);
+        return !track || track.visible !== false;
+      });
 
     const getTopmostClip = (clips) => {
       let topmost = null;
@@ -1384,7 +1445,11 @@ class YTPEditor {
     let needsSeekRefresh = false;
     let activeAudioElement = null;
 
-    const topmostAudioClip = getTopmostClip(activeClips);
+    const activeAudioClips = activeClips.filter((clip) => {
+      const track = getTrackForClip(clip);
+      return !track || !track.muted;
+    });
+    const topmostAudioClip = getTopmostClip(activeAudioClips);
     const videoCandidates = activeClips.filter((clip) => {
       if (clip.visible === false) return false;
       const media = getMediaForClip(clip);
@@ -1636,15 +1701,17 @@ class YTPEditor {
     }
 
     if (!topmostVideoClip) {
-      const message = topmostAudioClip ? 'Audio only at playhead' : 'No clips at playhead';
-      this.previewCtx.fillStyle = '#666';
-      this.previewCtx.font = '24px sans-serif';
+      const message = state.clips.length === 0
+        ? 'Add media to the timeline'
+        : (topmostAudioClip ? 'Audio only at playhead' : 'No clip at playhead');
+      this.previewCtx.fillStyle = '#777c86';
+      this.previewCtx.font = '500 18px Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
       this.previewCtx.textAlign = 'center';
       this.previewCtx.textBaseline = 'middle';
       this.previewCtx.fillText(message, width / 2, height / 2);
     } else if (!videoClipMedia) {
-      this.previewCtx.fillStyle = '#666';
-      this.previewCtx.font = '20px sans-serif';
+      this.previewCtx.fillStyle = '#777c86';
+      this.previewCtx.font = '500 16px Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
       this.previewCtx.textAlign = 'center';
       this.previewCtx.textBaseline = 'middle';
       this.previewCtx.fillText('Media not loaded (reimport file)', width / 2, height / 2);
@@ -1703,6 +1770,54 @@ class YTPEditor {
       this.previewFrameBuffer.width = width;
       this.previewFrameBuffer.height = height;
       this.hasPreviewFrame = false;
+    }
+  }
+
+  /**
+   * Allow the monitor/timeline split to be adjusted without changing the editor layout model.
+   */
+  setupPreviewResizer() {
+    const handle = this.previewResizeHandle;
+    const center = handle ? handle.closest('.editor-center') : null;
+    if (!handle || !center) return;
+
+    const setPreviewHeight = (height) => {
+      const rect = center.getBoundingClientRect();
+      const minPreview = Math.min(220, rect.height * 0.4);
+      const maxPreview = Math.max(minPreview, rect.height - 190);
+      const clamped = Math.max(minPreview, Math.min(height, maxPreview));
+      center.style.setProperty('--preview-height', `${clamped}px`);
+      handle.setAttribute('aria-valuenow', String(Math.round(clamped)));
+      this.resizePreview();
+    };
+
+    handle.addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      handle.setPointerCapture(event.pointerId);
+      document.body.classList.add('is-resizing-workspace');
+      const centerRect = center.getBoundingClientRect();
+      const onMove = (moveEvent) => setPreviewHeight(moveEvent.clientY - centerRect.top);
+      const onEnd = () => {
+        document.body.classList.remove('is-resizing-workspace');
+        handle.removeEventListener('pointermove', onMove);
+        handle.removeEventListener('pointerup', onEnd);
+        handle.removeEventListener('pointercancel', onEnd);
+      };
+      handle.addEventListener('pointermove', onMove);
+      handle.addEventListener('pointerup', onEnd);
+      handle.addEventListener('pointercancel', onEnd);
+    });
+
+    handle.addEventListener('keydown', (event) => {
+      if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+      event.preventDefault();
+      const current = document.querySelector('.preview-section').getBoundingClientRect().height;
+      setPreviewHeight(current + (event.key === 'ArrowDown' ? 16 : -16));
+    });
+
+    if (typeof ResizeObserver !== 'undefined') {
+      this.previewResizeObserver = new ResizeObserver(() => this.resizePreview());
+      this.previewResizeObserver.observe(this.previewCanvas.parentElement);
     }
   }
 

@@ -28,6 +28,50 @@ export class PropertiesPanel {
       missingCount: 0,
     };
     this.transcriptTab = 'search';
+    this.projectOpenSections = new Set(['Output']);
+  }
+
+  /**
+   * Turn the long project/export form into scannable native disclosure groups.
+   * Existing inputs are moved, so their bindings and values remain intact.
+   * @param {HTMLElement} propertiesContent
+   */
+  organizeProjectSettings(propertiesContent) {
+    const header = propertiesContent.querySelector('.properties-header');
+    if (!header) return;
+
+    const groups = [{ title: 'Output', nodes: [] }];
+    let currentGroup = groups[0];
+    Array.from(propertiesContent.children).forEach((node) => {
+      if (node === header) return;
+      if (node.classList.contains('property-section-title')) {
+        currentGroup = { title: node.textContent.trim(), nodes: [] };
+        groups.push(currentGroup);
+        node.remove();
+        return;
+      }
+      currentGroup.nodes.push(node);
+    });
+
+    groups.forEach((group) => {
+      const details = document.createElement('details');
+      details.className = 'property-accordion';
+      details.open = this.projectOpenSections.has(group.title);
+      const summary = document.createElement('summary');
+      summary.textContent = group.title;
+      const body = document.createElement('div');
+      body.className = 'property-accordion-body';
+      group.nodes.forEach(node => body.appendChild(node));
+      details.append(summary, body);
+      details.addEventListener('toggle', () => {
+        if (details.open) {
+          this.projectOpenSections.add(group.title);
+        } else {
+          this.projectOpenSections.delete(group.title);
+        }
+      });
+      propertiesContent.appendChild(details);
+    });
   }
 
   /**
@@ -114,6 +158,7 @@ export class PropertiesPanel {
           <input type="number" class="property-input" id="project-fps" min="1" max="120"
                  value="${exportSettings.fps}">
         </div>
+        <h3 class="property-section-title">Video Encoding</h3>
         <div class="property-group">
           <label class="property-label" for="project-video-codec">Video Codec</label>
           <select class="property-input" id="project-video-codec">
@@ -142,6 +187,7 @@ export class PropertiesPanel {
             <option value="veryslow" ${exportSettings.preset === 'veryslow' ? 'selected' : ''}>veryslow</option>
           </select>
         </div>
+        <h3 class="property-section-title">Audio Encoding</h3>
         <div class="property-group">
           <label class="property-label" for="project-audio-codec">Audio Codec</label>
           <select class="property-input" id="project-audio-codec">
@@ -161,6 +207,7 @@ export class PropertiesPanel {
           <input type="number" class="property-input" id="project-sample-rate" min="8000" max="192000"
                  value="${exportSettings.sampleRate}">
         </div>
+        <h3 class="property-section-title">Export Options</h3>
         <div class="property-group">
           <label class="property-label" for="project-format">Container</label>
           <select class="property-input" id="project-format">
@@ -191,7 +238,7 @@ export class PropertiesPanel {
           <label class="property-label" for="project-trim-empty-space">Trim empty space</label>
         </div>
 
-        <h3 class="property-section-title">Default Video Filters</h3>
+        <h3 class="property-section-title">Video Defaults</h3>
         <div class="property-group">
           <label class="property-label" for="project-video-brightness">Brightness</label>
           <input type="range" class="property-slider" id="project-video-brightness"
@@ -278,7 +325,7 @@ export class PropertiesPanel {
                  min="0" step="0.1" value="${defaultFilters.video.fadeOut}">
         </div>
 
-        <h3 class="property-section-title">Default Audio Filters</h3>
+        <h3 class="property-section-title">Audio Defaults</h3>
         <div class="property-group">
           <input type="checkbox" class="property-checkbox" id="project-declick"
                  ${exportSettings.deClick ? 'checked' : ''}>
@@ -336,6 +383,8 @@ export class PropertiesPanel {
                  min="0" step="0.1" value="${defaultFilters.audio.fadeOut}">
         </div>
       `;
+
+      this.organizeProjectSettings(propertiesContent);
 
       const resolutionMode = document.getElementById('project-resolution-mode');
       const resolutionWidth = document.getElementById('project-resolution-width');

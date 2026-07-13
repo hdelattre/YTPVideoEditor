@@ -160,6 +160,10 @@
     min-height: 160px;
   }
 
+  .workspace-resizer {
+    display: none;
+  }
+
   .preview-container {
     padding: var(--spacing-sm);
   }

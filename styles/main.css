@@ -25,7 +25,7 @@
   --color-border-strong: #393d46;
   --color-text: #f0f1f3;
   --color-text-soft: #c5c8ce;
-  --color-text-muted: #858a94;
+  --color-text-muted: #9499a4;
   --color-primary: #6f7df2;
   --color-primary-hover: #8290ff;
   --color-primary-active: #5e6be0;
@@ -131,14 +131,15 @@ svg {
 .app-mark svg {
   width: 18px;
   height: 18px;
-  fill: currentColor;
+  fill: none;
   stroke: currentColor;
   stroke-width: 1.5;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 
-.app-mark svg path:first-child {
+.app-mark svg path:last-child {
+  fill: currentColor;
   stroke: none;
 }
 
@@ -329,7 +330,7 @@ svg {
 }
 
 .preview-section {
-  height: 42%;
+  height: var(--preview-height, 50%);
   min-height: 210px;
   flex: 0 0 auto;
   background: var(--color-bg-deep);
@@ -383,6 +384,9 @@ svg {
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .transport-button {
@@ -400,10 +404,43 @@ svg {
 }
 
 .time-display {
-  min-width: 94px;
+  min-width: 72px;
   color: var(--color-text-soft);
   font-size: 12px;
   letter-spacing: 0.01em;
+}
+
+.workspace-resizer {
+  height: 5px;
+  flex: 0 0 5px;
+  position: relative;
+  z-index: 5;
+  margin-top: -5px;
+  cursor: row-resize;
+  touch-action: none;
+}
+
+.workspace-resizer::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 1px;
+  background: var(--color-border);
+  transition: height 120ms ease, background-color 120ms ease;
+}
+
+.workspace-resizer:hover::after,
+.workspace-resizer:focus-visible::after,
+.is-resizing-workspace .workspace-resizer::after {
+  height: 2px;
+  background: var(--color-primary);
+}
+
+.is-resizing-workspace {
+  cursor: row-resize;
+  user-select: none;
 }
 
 .preview-volume {

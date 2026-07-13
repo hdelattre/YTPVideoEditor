@@ -5,6 +5,7 @@
 // Timeline layout constants
 export const TRACK_HEIGHT = 56; // pixels
 export const RULER_HEIGHT = 28; // pixels
+export const TRACK_HEADER_WIDTH = 96; // pixels
 export const PIXELS_PER_SECOND_BASE = 100; // At zoom level 0
 export const MIN_CLIP_WIDTH = 10; // Minimum clip width in pixels
 export const PLAYHEAD_WIDTH = 2; // pixels

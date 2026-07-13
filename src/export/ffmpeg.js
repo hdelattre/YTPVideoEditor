@@ -555,7 +555,11 @@ function escapeForSingleQuotes(value) {
  * @returns {Array<{audioClip: import('../core/types.js').Clip|null, videoClip: import('../core/types.js').Clip|null, start: number, end: number}>}
  */
 function getTopmostSegments(state, mediaInfo) {
-  const clips = state.clips;
+  const trackById = new Map(state.tracks.map(track => [track.id, track]));
+  const clips = state.clips.filter((clip) => {
+    const track = trackById.get(clip.trackId);
+    return !track || track.visible !== false;
+  });
   if (clips.length === 0) return [];
 
   const infoMap = mediaInfo || new Map();
@@ -606,7 +610,12 @@ function getTopmostSegments(state, mediaInfo) {
       continue;
     }
 
-    const audioClip = getTopmost(active);
+    const audioClip = getTopmost(
+      active.filter((clip) => {
+        const track = trackById.get(clip.trackId);
+        return !track || !track.muted;
+      })
+    );
     const videoClip = getTopmost(
       active.filter(clip => clip.visible !== false && hasVideoForClip(clip))
     );

@@ -7,6 +7,7 @@ import { Canvas2DRenderer } from '../rendering/Canvas2DRenderer.js';
 import {
   TRACK_HEIGHT,
   RULER_HEIGHT,
+  TRACK_HEADER_WIDTH,
   MIN_CLIP_WIDTH,
   PLAYHEAD_WIDTH,
   COLORS,
@@ -34,6 +35,10 @@ export class Timeline {
     // Create canvas
     this.canvas = document.createElement('canvas');
     this.canvas.id = 'timeline-canvas';
+    this.trackHeaders = document.createElement('div');
+    this.trackHeaders.className = 'timeline-track-headers';
+    this.trackHeaders.setAttribute('aria-label', 'Timeline tracks');
+    this.container.appendChild(this.trackHeaders);
     this.container.appendChild(this.canvas);
 
     // Create renderer
@@ -50,6 +55,8 @@ export class Timeline {
     this.zoomAnchor = null;
     this.lastPointer = null;
     this.isPointerOverTimeline = false;
+    this.lastRenderedPlayhead = null;
+    this.lastTrackHeaderSignature = null;
 
     this.setupCanvas();
     this.setupEventListeners();
@@ -194,7 +201,7 @@ export class Timeline {
    */
   resizeCanvas() {
     const rect = this.container.getBoundingClientRect();
-    this.renderer.resize(rect.width, rect.height);
+    this.renderer.resize(Math.max(1, rect.width - TRACK_HEADER_WIDTH), rect.height);
     this.render(this.state.getState());
   }
 
@@ -207,7 +214,8 @@ export class Timeline {
   getMaxScroll(state, visibleWidth) {
     const duration = getTimelineDuration(state.clips);
     const totalWidth = timeToPixels(duration, state.zoom);
-    return Math.max(0, totalWidth - visibleWidth);
+    const endPadding = Math.min(240, visibleWidth * 0.18);
+    return Math.max(0, totalWidth + endPadding - visibleWidth);
   }
 
   /**
@@ -264,6 +272,7 @@ export class Timeline {
    */
   render(state) {
     this.renderer.clear();
+    this.renderTrackHeaders(state);
 
     const visibleWidth = this.renderer.width;
     const visibleHeight = this.renderer.height;
@@ -286,7 +295,21 @@ export class Timeline {
     }
 
     const maxScroll = this.getMaxScroll(state, visibleWidth);
+
+    // Keep playhead changes visible, including continuous playback and keyboard seeks.
+    const playheadChanged = state.playhead !== this.lastRenderedPlayhead;
+    if (playheadChanged) {
+      const playheadAbsoluteX = timeToPixels(state.playhead, state.zoom);
+      const safeLeft = this.scrollX + visibleWidth * 0.08;
+      const safeRight = this.scrollX + visibleWidth * 0.88;
+      if (playheadAbsoluteX < safeLeft) {
+        this.scrollX = playheadAbsoluteX - visibleWidth * 0.12;
+      } else if (playheadAbsoluteX > safeRight) {
+        this.scrollX = playheadAbsoluteX - visibleWidth * 0.22;
+      }
+    }
     this.scrollX = Math.max(0, Math.min(this.scrollX, maxScroll));
+    this.lastRenderedPlayhead = state.playhead;
 
     // Calculate visible time range
     const startTime = pixelsToTime(this.scrollX, state.zoom);
@@ -330,6 +353,85 @@ export class Timeline {
     }
 
     this.syncScrollbar(maxScroll);
+  }
+
+  /**
+   * Render fixed track identity and state controls beside the canvas.
+   * @param {import('../core/types.js').EditorState} state
+   */
+  renderTrackHeaders(state) {
+    if (!this.trackHeaders) return;
+    const signature = state.tracks
+      .map(track => `${track.id}:${track.name}:${track.visible}:${track.muted}:${track.locked}`)
+      .join('|');
+    if (signature === this.lastTrackHeaderSignature) return;
+    this.lastTrackHeaderSignature = signature;
+
+    this.trackHeaders.innerHTML = '';
+    const ruler = document.createElement('div');
+    ruler.className = 'timeline-track-ruler';
+    ruler.textContent = 'Tracks';
+    this.trackHeaders.appendChild(ruler);
+
+    state.tracks.forEach((track, index) => {
+      const row = document.createElement('div');
+      row.className = `timeline-track-header${track.visible === false ? ' is-hidden' : ''}${track.locked ? ' is-locked' : ''}`;
+
+      const identity = document.createElement('div');
+      identity.className = 'timeline-track-identity';
+      identity.innerHTML = '<span class="timeline-track-name"></span>';
+      identity.querySelector('.timeline-track-name').textContent = track.name || `Track ${index + 1}`;
+      row.appendChild(identity);
+
+      const controls = document.createElement('div');
+      controls.className = 'timeline-track-controls';
+      const controlConfigs = [
+        {
+          key: 'visible',
+          active: track.visible !== false,
+          title: track.visible === false ? 'Show track' : 'Hide track',
+          icon: track.visible === false
+            ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 4 16 16M10.6 10.7a2 2 0 0 0 2.7 2.7M9.4 5.4A10.8 10.8 0 0 1 12 5c5.5 0 9 7 9 7a15.6 15.6 0 0 1-2.1 3M6.2 6.2C4.1 7.6 3 9.8 3 12c0 0 3.5 7 9 7 1.1 0 2.1-.3 3-.7"/></svg>'
+            : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12s3.5-7 9-7 9 7 9 7-3.5 7-9 7-9-7-9-7Z"/><circle cx="12" cy="12" r="2.5"/></svg>',
+        },
+        {
+          key: 'muted',
+          active: !track.muted,
+          title: track.muted ? 'Unmute track' : 'Mute track',
+          icon: track.muted
+            ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h3l5 4V5L7 9H4ZM16 9l4 6M20 9l-4 6"/></svg>'
+            : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h3l5 4V5L7 9H4ZM15.5 8a5 5 0 0 1 0 8M18 5.5a8.5 8.5 0 0 1 0 13"/></svg>',
+        },
+        {
+          key: 'locked',
+          active: Boolean(track.locked),
+          title: track.locked ? 'Unlock track' : 'Lock track',
+          icon: track.locked
+            ? '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>'
+            : '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M9 10V7a4 4 0 0 1 7.5-2"/></svg>',
+        },
+      ];
+
+      controlConfigs.forEach((config) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = `timeline-track-control${config.active ? ' is-active' : ''}`;
+        button.innerHTML = config.icon;
+        button.title = config.title;
+        button.setAttribute('aria-label', `${config.title}: ${track.name}`);
+        button.setAttribute('aria-pressed', String(config.active));
+        button.addEventListener('click', () => {
+          const currentValue = config.key === 'visible'
+            ? track.visible !== false
+            : Boolean(track[config.key]);
+          this.state.dispatch(actions.updateTrack(track.id, { [config.key]: !currentValue }));
+        });
+        controls.appendChild(button);
+      });
+
+      row.appendChild(controls);
+      this.trackHeaders.appendChild(row);
+    });
   }
 
   /**
@@ -382,7 +484,7 @@ export class Timeline {
     const ids = [];
     state.clips.forEach((clip) => {
       const track = state.tracks.find(t => t.id === clip.trackId);
-      if (!track || !track.visible) return;
+      if (!track || !track.visible || track.locked) return;
       const trackIndex = state.tracks.indexOf(track);
       const x = timeToPixels(clip.start, state.zoom) - this.scrollX;
       const y = RULER_HEIGHT + trackIndex * TRACK_HEIGHT + 2;
@@ -851,6 +953,7 @@ export class Timeline {
     if (trackIndex < 0 || trackIndex >= state.tracks.length) return null;
 
     const track = state.tracks[trackIndex];
+    if (!track || track.locked || track.visible === false) return null;
     const pointerType = options && options.pointerType ? options.pointerType : 'mouse';
     const selectedIds = Array.isArray(state.selectedClipIds) ? state.selectedClipIds : [];
 
@@ -1056,7 +1159,10 @@ export class Timeline {
     // Calculate drop position
     const time = pixelsToTime(x + this.scrollX, state.zoom);
     const trackIndex = Math.floor((y - RULER_HEIGHT) / TRACK_HEIGHT);
-    const trackId = Math.max(0, Math.min(state.tracks.length - 1, trackIndex));
+    const clampedTrackIndex = Math.max(0, Math.min(state.tracks.length - 1, trackIndex));
+    const targetTrack = state.tracks[clampedTrackIndex];
+    if (!targetTrack || targetTrack.locked || targetTrack.visible === false) return;
+    const trackId = targetTrack.id;
 
     // Add clip at drop position
     this.state.dispatch(actions.addClip({

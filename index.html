@@ -15,7 +15,7 @@
         <header class="editor-header">
             <div class="app-identity" aria-label="YTP Editor">
                 <div class="app-mark" aria-hidden="true">
-                    <svg viewBox="0 0 24 24"><path d="M7 6.5v11l10-5.5L7 6.5Z"/><path d="M5 4h14M5 20h14"/></svg>
+                    <svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="2"/><path d="m10 9 5 3-5 3V9Z"/></svg>
                 </div>
                 <div class="app-titles">
                     <h1>YTP Editor</h1>
@@ -96,14 +96,17 @@
                             <button id="pauseBtn" class="btn btn-icon transport-button" title="Pause (Space)" aria-label="Pause" style="display:none;">
                                 <svg viewBox="0 0 24 24" aria-hidden="true" class="icon-fill"><path d="M8 6h3v12H8zM14 6h3v12h-3z"/></svg>
                             </button>
+                            <span id="timeDisplay" class="time-display">00:00.00</span>
                         </div>
-                        <span id="timeDisplay" class="time-display">00:00.00</span>
                         <div class="preview-volume">
                             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 10v4h3l4 3V7l-4 3H5Z"/><path d="M15 9.5a4 4 0 0 1 0 5M17.5 7a7 7 0 0 1 0 10"/></svg>
                             <input type="range" id="volumeSlider" min="0" max="100" value="100" class="volume-slider" aria-label="Preview volume">
                         </div>
                     </div>
                 </section>
+
+                <div id="previewResizeHandle" class="workspace-resizer" role="separator"
+                     aria-label="Resize preview and timeline" aria-orientation="horizontal" tabindex="0"></div>
 
                 <!-- Timeline area -->
                 <section class="timeline-section">
@@ -124,6 +127,9 @@
                         </button>
                         <span class="separator"></span>
                         <span class="zoom-label">Zoom</span>
+                        <button id="revealPlayheadBtn" class="btn btn-icon btn-sm" title="Reveal playhead" aria-label="Reveal playhead">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="6"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>
+                        </button>
                         <button id="zoomOutBtn" class="btn btn-icon btn-sm" title="Zoom out" aria-label="Zoom out">
                             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 12h10"/></svg>
                         </button>
