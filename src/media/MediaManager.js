@@ -667,13 +667,25 @@ export class MediaManager {
   renderMediaLibrary(state) {
     const mediaList = document.getElementById('mediaList');
     if (!mediaList) return;
+    const isEmpty = !state.mediaLibrary || state.mediaLibrary.length === 0;
+    const importButton = document.getElementById('importBtn');
+    const mobileMediaButton = document.getElementById('mobileMediaPanelBtn');
+    importButton?.classList.toggle('is-first-step', isEmpty);
+    mobileMediaButton?.classList.toggle('is-first-step', isEmpty);
+    const importLabel = importButton?.querySelector('span');
+    if (importLabel) importLabel.textContent = isEmpty ? 'Import your first clip' : 'Import media';
+    if (mobileMediaButton) {
+      const mobileLabel = isEmpty ? 'Open media to import your first clip' : 'Media library';
+      mobileMediaButton.title = mobileLabel;
+      mobileMediaButton.setAttribute('aria-label', mobileLabel);
+    }
     mediaList.innerHTML = '';
 
-    if (state.mediaLibrary.length === 0) {
+    if (isEmpty) {
       mediaList.innerHTML = `
         <div class="empty-state empty-state-media">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6.5h6l2 2h8v10H4v-12Z"/><path d="M9 13h6M12 10v6"/></svg>
-          <p>Your imported video and audio will appear here.</p>
+          <p>Import a video or audio file to start editing.</p>
         </div>
       `;
       return;

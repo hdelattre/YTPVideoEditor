@@ -105,6 +105,32 @@
     display: none;
   }
 
+  #mobileMediaPanelBtn.is-first-step {
+    position: relative;
+    color: #fff;
+    background: var(--color-primary-hover);
+    border-color: #6396b9;
+    box-shadow: 0 0 0 2px rgba(51, 111, 156, 0.3);
+  }
+
+  #mobileMediaPanelBtn.is-first-step:hover:not(:disabled) {
+    color: #fff;
+    background: #4a88b3;
+    border-color: #79a8c7;
+  }
+
+  #mobileMediaPanelBtn.is-first-step::after {
+    content: '';
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 7px;
+    height: 7px;
+    background: #fff;
+    border: 2px solid var(--color-primary-hover);
+    border-radius: 50%;
+  }
+
   .editor-main {
     position: relative;
   }

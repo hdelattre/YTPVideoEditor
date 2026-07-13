@@ -258,6 +258,26 @@ svg {
   justify-content: center;
 }
 
+.media-import .btn.is-first-step {
+  color: #fff;
+  background: var(--color-primary-hover);
+  border-color: #6396b9;
+  box-shadow:
+    0 0 0 2px rgba(51, 111, 156, 0.28),
+    0 4px 14px rgba(0, 0, 0, 0.26);
+}
+
+.media-import .btn.is-first-step:hover:not(:disabled) {
+  color: #fff;
+  background: #4a88b3;
+  border-color: #79a8c7;
+}
+
+.media-import .btn.is-first-step:active:not(:disabled) {
+  background: var(--color-primary-active);
+  border-color: var(--color-primary-active);
+}
+
 .panel-hint {
   margin-top: 8px;
   color: var(--color-text-muted);
