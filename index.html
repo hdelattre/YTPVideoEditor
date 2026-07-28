@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>YTP Editor</title>
+    <link rel="icon" href="favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="styles/main.css">
     <link rel="stylesheet" href="styles/timeline.css">
     <link rel="stylesheet" href="styles/editor.css">
@@ -15,7 +16,11 @@
         <header class="editor-header">
             <div class="app-identity" aria-label="YTP Editor">
                 <div class="app-mark" aria-hidden="true">
-                    <svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="2"/><path d="m10 9 5 3-5 3V9Z"/></svg>
+                    <svg viewBox="0 0 24 24">
+                        <path class="app-mark-clip app-mark-clip-left" d="M3 3.5h6.4l4.3 5.2-3.4 3.4L3 7.2V3.5Z"/>
+                        <path class="app-mark-clip app-mark-clip-right" d="M21 4.9h-6.1l-4 4.8 3.3 3.3L21 8.6V4.9Z"/>
+                        <path class="app-mark-cut" d="M10.5 10.2h3V21h-3V10.2Z"/>
+                    </svg>
                 </div>
                 <div class="app-titles">
                     <h1>YTP Editor</h1>
